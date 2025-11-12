@@ -16,64 +16,64 @@ const SUPABASE_URL  = 'https://mmpjvhlxqebznermjznl.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
 // =======================================================
 
-(function(){
+    (function () {
 
-const app = document.getElementById('app');
-const state = {
-  casesCount: 8,
-  maskMsMin: 900,
-  maskMsMax: 1500,
-  caseSliderDefault: 50,
-  introLines: ['Initializing experimental interface...','Loading session environment...','Ready.']
-};
+        const app = document.getElementById('app');
+        const state = {
+            casesCount: 8,
+            maskMsMin: 900,
+            maskMsMax: 1500,
+            caseSliderDefault: 50,
+            introLines: ['Initializing experimental interface...', 'Loading session environment...', 'Ready.']
+        };
 
-// ---- Prolific channel and PID hygiene
-const qp = new URLSearchParams(location.search);
-const channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : 'Others';
-let prolific_id = qp.get('pid') || null;
-function looksLikeTemplate(x) { return typeof x === 'string' && /\{\{.*\}\}/.test(x); }
-if (channel !== 'Prolific' || !prolific_id || looksLikeTemplate(prolific_id)) { prolific_id = null; }
-const isProlific = (channel === 'Prolific') && (prolific_id !== null);
+        // ---- Prolific channel and PID hygiene
+        const qp = new URLSearchParams(location.search);
+        const channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : 'Others';
+        let prolific_id = qp.get('pid') || null;
+        function looksLikeTemplate(x) { return typeof x === 'string' && /\{\{.*\}\}/.test(x); }
+        if (channel !== 'Prolific' || !prolific_id || looksLikeTemplate(prolific_id)) { prolific_id = null; }
+        const isProlific = (channel === 'Prolific') && (prolific_id !== null);
 
 
-// ---- Small DOM helpers
-function el(t, a, c) {
-  const n = document.createElement(t); a=a||{};
-  for (const k in a) { if (k==='class') n.className=a[k]; else if (k==='html') n.innerHTML=a[k]; else n.setAttribute(k,a[k]); }
-  (c||[]).forEach(x => n.appendChild(typeof x==='string'?document.createTextNode(x):x));
-  return n;
-}
-function fadeLines(container, lines, onDone) {
-  container.innerHTML=''; const w=document.createElement('div'); w.className='center'; container.appendChild(w);
-  let i=0;(function step(){ if(i>=lines.length){ onDone&&onDone(); return; } const d=el('div',{class:'fade'},[lines[i]]); w.appendChild(d); setTimeout(()=>d.classList.add('show'),50); i++; setTimeout(step,800); })();
-}
-function consentModal(ok, deny) {
-    app.innerHTML = '';
-    const children = [
-        el('h2', {}, ['Consent to Participate']),
-        el('p', {}, ['Your responses will be uploaded for research use in real time.'])
-    ];
-    // Show channel line ONLY for Prolific runs
-    if (isProlific) {
-        children.push(
-            el('div', { class: 'muted small' }, [
-                'Channel: Prolific', prolific_id ? ` • ID: ${prolific_id}` : ''
-            ])
-        );
+        // ---- Small DOM helpers
+        function el(t, a, c) {
+            const n = document.createElement(t); a = a || {};
+            for (const k in a) { if (k === 'class') n.className = a[k]; else if (k === 'html') n.innerHTML = a[k]; else n.setAttribute(k, a[k]); }
+            (c || []).forEach(x => n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x));
+            return n;
+        }
+        function fadeLines(container, lines, onDone) {
+            container.innerHTML = ''; const w = document.createElement('div'); w.className = 'center'; container.appendChild(w);
+            let i = 0; (function step() { if (i >= lines.length) { onDone && onDone(); return; } const d = el('div', { class: 'fade' }, [lines[i]]); w.appendChild(d); setTimeout(() => d.classList.add('show'), 50); i++; setTimeout(step, 800); })();
+        }
+        function consentModal(ok, deny) {
+            app.innerHTML = '';
+            const children = [
+                el('h2', {}, ['Consent to Participate']),
+                el('p', {}, ['Your responses will be uploaded for research use in real time.'])
+            ];
+            // Show channel line ONLY for Prolific runs
+            if (isProlific) {
+                children.push(
+                    el('div', { class: 'muted small' }, [
+                        'Channel: Prolific', prolific_id ? ` • ID: ${prolific_id}` : ''
+                    ])
+                );
+            }
+            children.push(
+                el('div', { class: 'btn-row' }, [
+                    el('button', { id: 'acc', class: 'btn primary' }, ['Accept']),
+                    el('button', { id: 'deny', class: 'btn' }, ['Decline'])
+                ])
+            );
+
+            const box = el('div', { class: 'card' }, children);
+            const ctr = el('div', { class: 'center' }, [box]); app.appendChild(ctr);
+            box.querySelector('#acc').onclick = ok; box.querySelector('#deny').onclick = deny;
+        }
+
     }
-    children.push(
-        el('div', { class: 'btn-row' }, [
-            el('button', { id: 'acc', class: 'btn primary' }, ['Accept']),
-            el('button', { id: 'deny', class: 'btn' }, ['Decline'])
-        ])
-    );
-
-    const box = el('div', { class: 'card' }, children);
-    const ctr = el('div', { class: 'center' }, [box]); app.appendChild(ctr);
-    box.querySelector('#acc').onclick = ok; box.querySelector('#deny').onclick = deny;
-}
-
-}
 function mask(msg){
   const m=document.querySelector('.mask'); m.textContent=msg||'Loading…'; m.classList.add('show'); return()=>m.classList.remove('show');
 }

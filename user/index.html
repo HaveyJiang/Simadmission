@@ -27,14 +27,26 @@
                 introLines: ['Initializing experimental interface...', 'Loading session environment...', 'Ready.']
             };
 
-            // ---- Prolific channel and PID hygiene
-            const qp = new URLSearchParams(location.search);
-            const channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : 'Others';
-            let prolific_id = qp.get('pid') || null;
-            function looksLikeTemplate(x) { return typeof x === 'string' && /\{\{.*\}\}/.test(x); }
-            if (channel !== 'Prolific' || !prolific_id || looksLikeTemplate(prolific_id)) { prolific_id = null; }
+            // ---- Prolific channel + PID parsing (robust)
+const qp = new URLSearchParams(location.search);
 
-            // ---- Small DOM helpers
+// Accept multiple parameter names (real Prolific uses PROLIFIC_PID)
+const rawPid =
+  qp.get('PROLIFIC_PID') ||
+  qp.get('prolific_pid') ||
+  qp.get('PID') ||
+  qp.get('pid') ||
+  null;
+
+// Ignore Prolific preview placeholders like {{PROLIFIC_PID}}
+const isTemplate = typeof rawPid === 'string' && /\{\{.*\}\}/.test(rawPid);
+let prolific_id = (!rawPid || isTemplate) ? null : rawPid;
+
+// Channel rules:
+// 1) If caller specifies ?channel=Prolific exactly → use it
+// 2) Else, if a valid PID exists → treat as Prolific
+// 3) Else → Others
+let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? 'Prolific' : 'Others');// ---- Small DOM helpers
             function el(t, a, c) {
                 const n = document.createElement(t); a = a || {};
                 for (const k in a) { if (k === 'class') n.className = a[k]; else if (k === 'html') n.innerHTML = a[k]; else n.setAttribute(k, a[k]); }

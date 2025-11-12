@@ -2,463 +2,166 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Experiment — User Portal</title>
-    <style>
-        :root {
-            --bg: #0b0f14;
-            --card: #121822;
-            --muted: #9fb0c2;
-            --text: #e8f0fa;
-            --accent: #5aa2ff;
-            --accent2: #38d39f;
-            --danger: #ff6b6b;
-            --shadow: 0 10px 30px rgba(0,0,0,.35);
-        }
-
-        html, body {
-            height: 100%
-        }
-
-        body {
-            margin: 0;
-            background: var(--bg);
-            color: var(--text);
-            font: 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .wrap {
-            width: min(860px,92vw);
-            padding: 24px
-        }
-
-        .card {
-            background: var(--card);
-            border-radius: 16px;
-            padding: 24px 28px;
-            box-shadow: var(--shadow);
-            animation: fade .5s ease both;
-        }
-
-        h1, h2 {
-            margin: .2rem 0 1rem;
-            font-weight: 700
-        }
-
-        h1 {
-            font-size: 28px
-        }
-
-        h2 {
-            font-size: 22px;
-            color: #dbe7f5
-        }
-
-        p {
-            margin: .5rem 0;
-            color: #cfe0f3
-        }
-
-        .muted {
-            color: var(--muted)
-        }
-
-        .btnrow {
-            display: flex;
-            gap: 12px;
-            margin-top: 16px;
-            flex-wrap: wrap
-        }
-
-        .btn {
-            padding: 10px 16px;
-            border-radius: 12px;
-            border: 1px solid transparent;
-            background: #1a2332;
-            color: var(--text);
-            cursor: pointer;
-            transition: .15s transform ease,.15s background ease,.15s border-color ease;
-        }
-
-            .btn.primary {
-                background: var(--accent);
-                color: #021020
-            }
-
-            .btn:disabled {
-                opacity: .6;
-                cursor: not-allowed
-            }
-
-            .btn:hover {
-                transform: translateY(-1px)
-            }
-
-        .center {
-            display: flex;
-            align-items: center;
-            justify-content: center
-        }
-
-        .grades {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            margin: 16px 0 10px;
-            letter-spacing: .5px;
-            flex-wrap: wrap;
-        }
-
-        .grade {
-            font-weight: 800;
-            font-size: 44px;
-            line-height: 1;
-            padding: 8px 14px;
-            border-radius: 12px;
-            background: #0f1520;
-            border: 1px solid #1d2840;
-            min-width: 48px;
-            text-align: center;
-            box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
-        }
-
-        .hdr {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px
-        }
-
-        .hint {
-            font-size: 13px;
-            color: var(--muted)
-        }
-
-        .sliderRow {
-            margin: 10px 0
-        }
-
-        input[type=range] {
-            width: 100%
-        }
-
-        .mask {
-            position: fixed;
-            inset: 0;
-            display: none;
-            place-items: center;
-            background: rgba(5,10,16,.65);
-            backdrop-filter: blur(3px);
-            z-index: 50;
-        }
-
-            .mask.show {
-                display: grid
-            }
-
-            .mask .bubble {
-                background: var(--card);
-                padding: 18px 20px;
-                border-radius: 14px;
-                border: 1px solid #1d2736;
-                box-shadow: var(--shadow);
-                color: #cfe0f3;
-                font-weight: 600;
-            }
-
-        @keyframes fade {
-            from {
-                opacity: 0;
-                transform: translateY(6px)
-            }
-
-            to {
-                opacity: 1;
-                transform: none
-            }
-        }
-
-        /* subtle fade-in for intro */
-        .intro .lead {
-            font-size: 18px
-        }
-
-        .intro .sample {
-            border: 1px dashed #2b3d58;
-            border-radius: 12px;
-            padding: 12px;
-            margin-top: 12px;
-            color: #bcd0e6;
-            background: #0e1420;
-        }
-    </style>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>User Portal</title>
+    <link rel="stylesheet" href="styles/style.css" />
 </head>
 <body>
-    <div class="wrap">
-        <div id="app" class="card"></div>
-    </div>
-
-    <div id="mask" class="mask"><div class="bubble">Loading…</div></div>
+    <div id="app"></div>
+    <div class="mask"></div>
 
     <script>
+        // ==== REPLACE with your real Supabase project values ====
+        const SUPABASE_URL = 'https://mmpjvhlxqebznermjznl.supabase.co';
+        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
+        // =======================================================
+
         (function () {
-            // ====== CONFIG: replace with your real Supabase URL + anon key ======
-            const SUPABASE_URL = 'https://mmpjvhlxqebznermjznl.supabase.co'; // <-- replace
-            const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';                    // <-- replace
 
-            // ====== Helpers ======
             const app = document.getElementById('app');
-            const $mask = document.getElementById('mask');
-            const sleep = ms => new Promise(r => setTimeout(r, ms));
-            const el = (t, attrs = {}, kids = []) => {
-                const n = document.createElement(t);
-                for (const k in attrs) {
-                    if (k === 'class') n.className = attrs[k];
-                    else if (k === 'html') n.innerHTML = attrs[k];
-                    else n.setAttribute(k, attrs[k]);
-                }
-                (Array.isArray(kids) ? kids : [kids]).forEach(k => n.appendChild(typeof k === 'string' ? document.createTextNode(k) : k));
-                return n;
+            const state = {
+                casesCount: 8,
+                maskMsMin: 900,
+                maskMsMax: 1500,
+                caseSliderDefault: 50,
+                introLines: ['Initializing experimental interface...', 'Loading session environment...', 'Ready.']
             };
-            const showMask = (msg) => { $mask.querySelector('.bubble').textContent = msg || 'Loading…'; $mask.classList.add('show'); };
-            const hideMask = () => { $mask.classList.remove('show'); };
 
-            // ====== URL params / channel logic ======
+            // ---- Prolific channel and PID hygiene
             const qp = new URLSearchParams(location.search);
             const channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : 'Others';
             let prolific_id = qp.get('pid') || null;
-            const looksLikeTemplate = x => typeof x === 'string' && /\{\{.*\}\}/.test(x);
-            if (channel !== 'Prolific' || !prolific_id || looksLikeTemplate(prolific_id)) prolific_id = null;
-            const isProlific = (channel === 'Prolific') && (prolific_id !== null);
+            function looksLikeTemplate(x) { return typeof x === 'string' && /\{\{.*\}\}/.test(x); }
+            if (channel !== 'Prolific' || !prolific_id || looksLikeTemplate(prolific_id)) { prolific_id = null; }
 
-            // ====== Session & event upload ======
-            const session_id = `S${Date.now()}-${Math.floor(Math.random() * 1e5)}`;
-            const insertEvent = async (payload) => {
-                try {
-                    const row = {
-                        payload,                                // full mirror for safety
-                        ts: payload.ts || Date.now(),           // top-level columns for Dev
-                        session_id,
-                        name: payload.name || null,
-                        channel: payload.channel ?? null,
-                        prolific_id: payload.prolific_id ?? null,
-                        case_index: payload.case_index ?? null,
-                        within_case_index: payload.within_case_index ?? null,
-                        route_code: payload.route_code ?? null,
-                        transcript_type: payload.transcript_type ?? null,
-                        letters: payload.letters_shown_order ? payload.letters_shown_order.join(' ') : null,
-                        slider_value: payload.slider_value ?? null,
-                        transcript_time_ms: payload.transcript_time_ms ?? null
-                    };
-                    const resp = await fetch(`${SUPABASE_URL}/rest/v1/events`, {
-                        method: 'POST',
-                        headers: {
-                            apikey: SUPABASE_ANON,
-                            Authorization: `Bearer ${SUPABASE_ANON}`,
-                            'Content-Type': 'application/json',
-                            Prefer: 'return=minimal'
-                        },
-                        body: JSON.stringify([row])
-                    });
-                    if (!resp.ok) {
-                        // You can console.log for local debug; avoid noisy alerts for subjects
-                        console.warn('Upload failed', await resp.text());
-                    }
-                } catch (e) { console.warn('Upload error', e); }
-            };
-
-            // Immediately log session meta
-            insertEvent({ ts: Date.now(), name: 'session_meta', session_id, channel, prolific_id });
-
-            // ====== Randomization ======
-            const ALL_ROUTES = ['AAA', 'AAB', 'ABA', 'ABB', 'BAA', 'BAB', 'BBA', 'BBB']; // 8 unique cases
-            const shuffle = arr => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
-            const pickCaseRoutes = () => shuffle(ALL_ROUTES.slice()); // all 8, randomized
-
-            const sampleLetters = (type) => { // A: AAABB, B: AABBB
-                const pool = (type === 'A') ? ['A', 'A', 'A', 'B', 'B'] : ['A', 'A', 'B', 'B', 'B'];
-                return shuffle(pool.slice());
-            };
-
-            // ====== UI Sections ======
-            const renderIntro = () => {
+            // ---- Small DOM helpers
+            function el(t, a, c) {
+                const n = document.createElement(t); a = a || {};
+                for (const k in a) { if (k === 'class') n.className = a[k]; else if (k === 'html') n.innerHTML = a[k]; else n.setAttribute(k, a[k]); }
+                (c || []).forEach(x => n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x));
+                return n;
+            }
+            function fadeLines(container, lines, onDone) {
+                container.innerHTML = ''; const w = document.createElement('div'); w.className = 'center'; container.appendChild(w);
+                let i = 0; (function step() { if (i >= lines.length) { onDone && onDone(); return; } const d = el('div', { class: 'fade' }, [lines[i]]); w.appendChild(d); setTimeout(() => d.classList.add('show'), 50); i++; setTimeout(step, 800); })();
+            }
+            function consentModal(ok, deny) {
                 app.innerHTML = '';
-                app.classList.add('intro');
-                app.append(
-                    el('h1', {}, ['Welcome']),
-                    el('p', { class: 'lead' }, [
-                        'You will review 8 cases. Each case has 3 short “Semesters”. After each Semester, ',
-                        'estimate how likely this applicant would pass this round.'
-                    ]),
-                    el('div', { class: 'sample' }, [
-                        el('div', { class: 'muted' }, ['Example Semester']),
-                        el('div', { class: 'grades' }, [
-                            el('div', { class: 'grade' }, ['A']),
-                            el('div', { class: 'grade' }, ['B']),
-                            el('div', { class: 'grade' }, ['A']),
-                            el('div', { class: 'grade' }, ['B']),
-                            el('div', { class: 'grade' }, ['A']),
-                        ]),
-                        el('div', { class: 'hint' }, ['These letters are shown large on screen.'])
-                    ]),
-                    el('div', { class: 'btnrow' }, [
-                        el('button', { class: 'btn primary', id: 'go' }, ['Continue'])
-                    ])
-                );
-                document.getElementById('go').onclick = renderConsent;
-            };
-
-            const renderConsent = () => {
-                app.classList.remove('intro');
-                app.innerHTML = '';
-                const kids = [
-                    el('h1', {}, ['Consent to Participate']),
-                    el('p', {}, [
-                        'Your responses will be uploaded in real time for research use. ',
-                        'No personal information is collected beyond a platform ID when applicable.'
-                    ]),
-                ];
-                if (isProlific) kids.push(el('p', { class: 'muted' }, [`Channel: Prolific`, prolific_id ? ` • ID: ${prolific_id}` : '']));
-                const btns = el('div', { class: 'btnrow' }, [
-                    el('button', { class: 'btn primary', id: 'accept' }, ['Accept & Start']),
-                    el('button', { class: 'btn', id: 'decline' }, ['Decline'])
+                const box = el('div', { class: 'card' }, [
+                    el('h2', {}, ['Consent to Participate']),
+                    el('p', {}, ['Your responses will be uploaded for research use in real time.']),
+                    el('p', {}, ['']),
+                    el('div', { class: 'btn-row' }, [el('button', { id: 'acc', class: 'btn primary' }, ['Accept']), el('button', { id: 'deny', class: 'btn' }, ['Decline'])])
                 ]);
-                app.append(el('div', {}, kids), btns);
+                const ctr = el('div', { class: 'center' }, [box]); app.appendChild(ctr);
+                box.querySelector('#acc').onclick = ok; box.querySelector('#deny').onclick = deny;
+            }
+            function mask(msg) {
+                const m = document.querySelector('.mask'); m.textContent = msg || 'Loading…'; m.classList.add('show'); return () => m.classList.remove('show');
+            }
+            function sliderRow(val, onCommit) {
+                const out = el('span', { class: 'value' }, [String(val) + '%']); const s = el('input', { type: 'range', min: '0', max: '100', value: String(val), step: '1' });
+                s.oninput = () => { out.textContent = s.value + '%'; }; const btn = el('button', { class: 'btn primary' }, ['Confirm']); btn.onclick = () => onCommit(Number(s.value));
+                return el('div', { class: 'slider-row' }, [el('label', {}, ['Assumed likelihood to pass this round:']), s, out, btn]);
+            }
+            function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); } function load(k, d) { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }
 
-                document.getElementById('accept').onclick = async () => {
-                    await insertEvent({ ts: Date.now(), name: 'consent_accept', session_id });
-                    startExperiment();
-                };
-                document.getElementById('decline').onclick = async () => {
-                    await insertEvent({ ts: Date.now(), name: 'consent_decline', session_id });
-                    app.innerHTML = '';
-                    app.append(
-                        el('h1', {}, ['Thank you']),
-                        el('p', {}, ['You chose not to participate. This window can be closed.'])
-                    );
-                };
-            };
+            // Same-device preview channel
+            const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
 
-            // ====== Experiment flow ======
-            let routes = [];      // array of 8 route codes (e.g., 'AAB', ...)
-            let caseIdx = 0;      // 1..8
-            let withinIdx = 0;    // 1..3
-            let routeCode = '';   // current route code
-            let currentSlider = 50; // resets at case start; sticks afterwards
-            let tTranscriptStart = 0;
-            let tCaseStart = 0;
+            // ---- Supabase write (skip if not configured)
+            async function postEventToDB(evt) {
+                if (!SUPABASE_URL || !SUPABASE_ANON || SUPABASE_URL.indexOf('YOUR-PROJECT') !== -1) return;
+                const row = { ts: evt.ts, session_id: evt.session_id, name: evt.name, channel: evt.channel ?? null, prolific_id: evt.prolific_id ?? null, case_index: evt.case_index ?? null, within_case_index: evt.within_case_index ?? null, route_code: evt.route_code ?? null, transcript_type: evt.transcript_type ?? null, letters: Array.isArray(evt.letters_shown_order) ? evt.letters_shown_order : null, slider_value: evt.slider_value ?? null, transcript_time_ms: evt.transcript_time_ms ?? null, payload: evt };
+                try {
+                    await fetch(`${SUPABASE_URL}/rest/v1/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Prefer': 'return=minimal' }, body: JSON.stringify([row]), keepalive: true });
+                } catch (err) {
+                    const q = JSON.parse(localStorage.getItem('upload_queue') || '[]'); q.push(row); localStorage.setItem('upload_queue', JSON.stringify(q));
+                }
+            }
+            window.addEventListener('online', async () => {
+                const q = JSON.parse(localStorage.getItem('upload_queue') || '[]'); if (!q.length) return;
+                try {
+                    await fetch(`${SUPABASE_URL}/rest/v1/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Prefer': 'return=minimal' }, body: JSON.stringify(q) });
+                    localStorage.removeItem('upload_queue');
+                } catch (_) { }
+            });
 
-            const startExperiment = async () => {
-                routes = pickCaseRoutes();
-                caseIdx = 0;
-                await nextCase();
-            };
+            // Unified event sink: local mirror + Supabase
+            function stream(e) {
+                const arr = load('exp_events', []); arr.push({ type: 'event', ...e }); save('exp_events', arr);
+                try { bc && bc.postMessage({ type: 'event', ...e }); } catch (_) { }
+                postEventToDB(e);
+            }
 
-            const bufferBetweenCases = async () => {
-                showMask('Preparing next case…');
-                await sleep(1200);
-                hideMask();
-            };
+            // --- Experiment content & randomization
+            function rand(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
+            function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[a[i], a[j]] = [a[j], a[i]]; } return a; }
+            function uniquePerms(ms) {
+                const map = {}; ms.forEach(x => map[x] = (map[x] || 0) + 1); const keys = Object.keys(map), res = [];
+                function bt(p) { if (p.length === ms.length) { res.push(p.slice()); return; } for (const k of keys) { if (map[k] > 0) { map[k]--; p.push(k); bt(p); p.pop(); map[k]++; } } }
+                bt([]);
+                const seen = new Set(), out = []; for (const p of res) { const s = p.join(''); if (!seen.has(s)) { seen.add(s); out.push(p); } }
+                return out;
+            }
+            const ALPHA_ROWS = uniquePerms(['A', 'A', 'A', 'B', 'B']); const BETA_ROWS = uniquePerms(['A', 'A', 'B', 'B', 'B']);
+            function routes() { const t = ['A', 'B'], r = []; for (const i of t) for (const j of t) for (const k of t) r.push(i + j + k); return r; }
 
-            const nextCase = async () => {
-                if (caseIdx >= 8) {
-                    await insertEvent({ ts: Date.now(), name: 'session_finish', session_id });
-                    app.innerHTML = '';
-                    app.append(
-                        el('h1', {}, ['All done — thank you!']),
-                        el('p', {}, ['You may now close this window.'])
-                    );
+            // --- Session lifecycle
+            const session = { session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5), started_ts: Date.now(), upload_consent: null, finished: false, channel, prolific_id };
+            stream({ name: 'session_meta', session_id: session.session_id, ts: Date.now(), channel, prolific_id });
+
+            const CASES = shuffle(routes()).slice(0, state.casesCount);
+            let caseIdx = 0, transIdx = 0, caseStart = 0, transStart = 0, routeCode = null;
+            let currentSlider = state.caseSliderDefault;
+
+            function startIntro() {
+                const ctr = document.createElement('div'); ctr.className = 'center'; app.innerHTML = ''; app.appendChild(ctr);
+                fadeLines(ctr, state.introLines, () => { const b = el('button', { class: 'btn primary' }, ['Continue']); b.onclick = showConsent; ctr.appendChild(b); });
+            }
+            function showConsent() {
+                consentModal(() => { session.upload_consent = true; stream({ name: 'consent_accept', session_id: session.session_id, ts: Date.now() }); startExperiment(); },
+                    () => { session.upload_consent = false; stream({ name: 'consent_decline', session_id: session.session_id, ts: Date.now() }); app.innerHTML = '<div class="center"><h2>Thank you for your time.</h2></div>'; });
+            }
+            function startExperiment() { const un = mask('Preparing Case 1…'); setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax)); }
+            function nextCase() {
+                if (caseIdx >= state.casesCount) { finish(); return; }
+                routeCode = CASES[caseIdx]; transIdx = 0; caseStart = Date.now(); currentSlider = state.caseSliderDefault;
+                stream({ name: 'case_start', session_id: session.session_id, ts: caseStart, case_index: caseIdx + 1, route_code: routeCode });
+                nextTranscript();
+            }
+            function showTranscript(type, onCommit) {
+                app.innerHTML = '';
+                const row = (type === 'A') ? ALPHA_ROWS[Math.floor(Math.random() * ALPHA_ROWS.length)] : BETA_ROWS[Math.floor(Math.random() * BETA_ROWS.length)];
+                const frame = el('div', { class: 'card focus' });
+                frame.appendChild(el('div', { class: 'subhead' }, ['Semester ', ['X', 'Y', 'Z'][transIdx]]));
+                frame.appendChild(el('div', { class: 'grades' }, [row.join('   ')]));
+                frame.appendChild(el('hr'));
+                frame.appendChild(sliderRow(currentSlider, v => onCommit({ v, row })));
+                app.appendChild(el('div', { class: 'center' }, [el('h2', {}, ['Case ' + (caseIdx + 1) + ' — Transcript ' + (transIdx + 1) + '/3']), frame]));
+            }
+            function nextTranscript() {
+                if (transIdx >= 3) {
+                    const caseTime = Date.now() - caseStart;
+                    stream({ name: 'case_end', session_id: session.session_id, ts: Date.now(), case_index: caseIdx + 1, route_code: routeCode, case_time_ms: caseTime });
+                    caseIdx++;
+                    const un = mask('Loading next case…'); setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax));
                     return;
                 }
-                if (caseIdx > 0) await bufferBetweenCases();
-
-                // Start new case
-                caseIdx += 1;
-                withinIdx = 1;
-                routeCode = routes[caseIdx - 1];
-                currentSlider = 50; // recenter at case start only
-                tCaseStart = Date.now();
-
-                await insertEvent({ ts: tCaseStart, name: 'case_start', session_id, case_index: caseIdx, route_code: routeCode });
-
-                renderTranscript();
-            };
-
-            const commitTranscript = async (letters, sliderValue, transcriptType) => {
-                const now = Date.now();
-                const tMs = now - tTranscriptStart;
-
-                await insertEvent({
-                    ts: now,
-                    name: 'transcript_commit',
-                    session_id,
-                    case_index: caseIdx,
-                    within_case_index: withinIdx,
-                    route_code: routeCode,
-                    transcript_type: transcriptType,
-                    letters_shown_order: letters,
-                    slider_value: sliderValue,
-                    transcript_time_ms: tMs
+                const type = routeCode[transIdx]; transStart = Date.now();
+                showTranscript(type, ({ v, row }) => {
+                    const t = Date.now() - transStart; currentSlider = v;
+                    stream({ name: 'transcript_commit', session_id: session.session_id, ts: Date.now(), case_index: caseIdx + 1, within_case_index: transIdx + 1, route_code: routeCode, transcript_type: type, letters_shown_order: row, slider_value: v, transcript_time_ms: t });
+                    transIdx++; nextTranscript();
                 });
+            }
+            function finish() {
+                session.finished = true;
+                stream({ name: 'session_finish', session_id: session.session_id, ts: Date.now(), finished: true });
+                app.innerHTML = '<div class="center"><h2>All cases complete.</h2><div class="muted">You may now close this window.</div></div>';
+            }
 
-                if (withinIdx < 3) {
-                    withinIdx += 1;
-                    renderTranscript(); // stick slider at last chosen value
-                } else {
-                    // End of the case
-                    await insertEvent({
-                        ts: Date.now(),
-                        name: 'case_end',
-                        session_id,
-                        case_index: caseIdx,
-                        route_code: routeCode,
-                        case_time_ms: Date.now() - tCaseStart
-                    });
-                    await nextCase();
-                }
-            };
-
-            const renderTranscript = () => {
-                const type = routeCode[withinIdx - 1]; // 'A' or 'B'
-                const letters = sampleLetters(type);
-                app.innerHTML = '';
-
-                const head = el('div', { class: 'hdr' }, [
-                    el('h2', {}, [`Case ${caseIdx} — Semester ${withinIdx}/3`]),
-                    el('span', { class: 'hint' }, ['Avg. odds ~ 50%'])
-                ]);
-
-                const block = el('div', {}, [
-                    el('div', { class: 'grades' }, letters.map(x => el('div', { class: 'grade' }, [x]))),
-                    el('div', { class: 'sliderRow' }, [
-                        el('label', { for: 'prob' }, ['Assumed likelihood to pass this round: ']),
-                        el('input', { type: 'range', id: 'prob', min: '0', max: '100', step: '1', value: String(currentSlider) }),
-                        el('div', { class: 'hint', id: 'pv' }, [`${currentSlider}%`])
-                    ]),
-                    el('div', { class: 'btnrow' }, [
-                        el('button', { class: 'btn primary', id: 'next' }, ['Commit & Continue'])
-                    ])
-                ]);
-
-                app.append(head, block);
-
-                const slider = document.getElementById('prob');
-                const pv = document.getElementById('pv');
-                slider.addEventListener('input', () => { pv.textContent = slider.value + '%'; });
-                document.getElementById('next').onclick = () => {
-                    currentSlider = +slider.value; // stick for next transcript in this case
-                    commitTranscript(letters, currentSlider, type);
-                };
-
-                tTranscriptStart = Date.now();
-            };
-
-            // Kick off flow
-            renderIntro();
+            startIntro();
 
         })();
     </script>

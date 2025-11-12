@@ -1,0 +1,11 @@
+# IDE / OS clutter
+.vs/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# build/output (add as needed)
+node_modules/
+dist/
+build/
+.env

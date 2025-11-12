@@ -33,6 +33,8 @@ const channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : 'Others';
 let prolific_id = qp.get('pid') || null;
 function looksLikeTemplate(x) { return typeof x === 'string' && /\{\{.*\}\}/.test(x); }
 if (channel !== 'Prolific' || !prolific_id || looksLikeTemplate(prolific_id)) { prolific_id = null; }
+const isProlific = (channel === 'Prolific') && (prolific_id !== null);
+
 
 // ---- Small DOM helpers
 function el(t, a, c) {
@@ -45,16 +47,32 @@ function fadeLines(container, lines, onDone) {
   container.innerHTML=''; const w=document.createElement('div'); w.className='center'; container.appendChild(w);
   let i=0;(function step(){ if(i>=lines.length){ onDone&&onDone(); return; } const d=el('div',{class:'fade'},[lines[i]]); w.appendChild(d); setTimeout(()=>d.classList.add('show'),50); i++; setTimeout(step,800); })();
 }
-function consentModal(ok,deny){
-  app.innerHTML='';
-  const box=el('div',{class:'card'},[
-    el('h2',{},['Consent to Participate']),
-    el('p',{},['Your responses will be uploaded for research use in real time.']),
-    el('div',{class:'muted small'},['Channel: ',channel, prolific_id?' • Prolific ID detected':'']),
-    el('div',{class:'btn-row'},[el('button',{id:'acc',class:'btn primary'},['Accept']),el('button',{id:'deny',class:'btn'},['Decline'])])
-  ]);
-  const ctr=el('div',{class:'center'},[box]); app.appendChild(ctr);
-  box.querySelector('#acc').onclick=ok; box.querySelector('#deny').onclick=deny;
+function consentModal(ok, deny) {
+    app.innerHTML = '';
+    const children = [
+        el('h2', {}, ['Consent to Participate']),
+        el('p', {}, ['Your responses will be uploaded for research use in real time.'])
+    ];
+    // Show channel line ONLY for Prolific runs
+    if (isProlific) {
+        children.push(
+            el('div', { class: 'muted small' }, [
+                'Channel: Prolific', prolific_id ? ` • ID: ${prolific_id}` : ''
+            ])
+        );
+    }
+    children.push(
+        el('div', { class: 'btn-row' }, [
+            el('button', { id: 'acc', class: 'btn primary' }, ['Accept']),
+            el('button', { id: 'deny', class: 'btn' }, ['Decline'])
+        ])
+    );
+
+    const box = el('div', { class: 'card' }, children);
+    const ctr = el('div', { class: 'center' }, [box]); app.appendChild(ctr);
+    box.querySelector('#acc').onclick = ok; box.querySelector('#deny').onclick = deny;
+}
+
 }
 function mask(msg){
   const m=document.querySelector('.mask'); m.textContent=msg||'Loading…'; m.classList.add('show'); return()=>m.classList.remove('show');

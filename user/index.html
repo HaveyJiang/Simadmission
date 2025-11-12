@@ -165,5 +165,21 @@
 
         })();
     </script>
+    <!-- 🧪 Debug overlay: shows channel & PID -->
+    <div id="debug"
+         style="position:fixed;right:12px;bottom:12px;padding:8px 10px;
+            border-radius:8px;background:#111;color:#0ff;
+            font:12px/1.2 ui-monospace;opacity:.85;z-index:9999">
+    </div>
+
+    <script>
+        // Wait until session info is available
+        window.addEventListener('load', () => {
+            const d = document.getElementById('debug');
+            // It will display “channel=Prolific | pid=TEST123” etc.
+            d.textContent = `channel=${session?.channel || 'N/A'} | pid=${session?.prolific_id || 'null'}`;
+        });
+    </script>
+
 </body>
 </html>

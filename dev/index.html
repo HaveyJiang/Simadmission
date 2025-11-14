@@ -70,6 +70,15 @@
         }
 
         function startExperiment(name) {
+            name = name || '';
+            name = name.trim();
+
+            // "(Stray)" is reserved for system use
+            if (name === '(Stray)') {
+                alert('" (Stray) " is a reserved label and cannot be used as an experiment name.');
+                return;
+            }
+
             const exps = getExperiments();
             const e = {
                 experiment_id: 'E' + Math.floor(Math.random() * 1e6) + '-' + Date.now(),
@@ -82,6 +91,7 @@
             setExperiments(exps);
             render();
         }
+
 
         function endExperiment(id) {
             setExperiments(
@@ -339,40 +349,54 @@
             setTimeout(() => URL.revokeObjectURL(a.href), 3000);
         }
 
-        // Count sessions per experiment / stray / total
+        // Count sessions per experiment / stray / total, with "finished" info
         function experimentEntryCounts(evs) {
             const exps = getExperiments();
             const sessions = sessionsFromEvents(evs);
 
-            // init count per experiment
-            const counts = {};
-            exps.forEach(e => { counts[e.experiment_id] = 0; });
+            // per-experiment stats
+            const counts = {}; // expId -> { finished, total }
+            exps.forEach(e => {
+                counts[e.experiment_id] = { finished: 0, total: 0 };
+            });
 
-            let stray = 0;
-            const total = sessions.length;
+            let strayFinished = 0;
+            let strayTotal = 0;
+            let totalFinished = 0;
+            const totalTotal = sessions.length;
 
             sessions.forEach(s => {
                 const ts = s.started_ts || null;
-                if (!ts) {
-                    // no clear start time → treat as stray
-                    stray++;
-                    return;
-                }
+                const finished = !!s.finished;
 
-                const owned = experimentsForSession(ts);
+                if (finished) totalFinished++;
+
+                const owned = ts ? experimentsForSession(ts) : [];
 
                 if (!owned.length) {
-                    stray++;
+                    // ownerless (Stray)
+                    strayTotal++;
+                    if (finished) strayFinished++;
                 } else {
-                    // count this session once for every experiment it belongs to
                     owned.forEach(e => {
-                        counts[e.experiment_id] = (counts[e.experiment_id] || 0) + 1;
+                        if (!counts[e.experiment_id]) {
+                            counts[e.experiment_id] = { finished: 0, total: 0 };
+                        }
+                        counts[e.experiment_id].total++;
+                        if (finished) counts[e.experiment_id].finished++;
                     });
                 }
             });
 
-            return { counts, stray, total };
+            return {
+                counts,        // { expId: { finished, total } }
+                strayFinished,
+                strayTotal,
+                totalFinished,
+                totalTotal
+            };
         }
+
 
 
         async function render() {
@@ -420,6 +444,7 @@
             controlRow.appendChild(exportBtn);
             manage.appendChild(controlRow);
 
+            // Experiments table (with Finished + Entries)
             const exps = getExperiments();
             const entryStats = experimentEntryCounts(evs);
             const counts = entryStats.counts;
@@ -427,15 +452,19 @@
             const expTable = el('table', { class: 'exp-table' });
             const expHead = el('thead');
             const expHeadRow = el('tr');
+
+            // Note: Added "Finished" before "Entries"
             const expHeaders = [
                 'Experiment ID',
                 'Name',
                 'Status',
                 'Start (local)',
                 'End (local)',
+                'Finished',
                 'Entries',
                 'Action'
             ];
+
             expHeaders.forEach(h => {
                 expHeadRow.appendChild(el('th', {}, [h]));
             });
@@ -445,13 +474,16 @@
             const expBody = el('tbody');
 
             exps.forEach(e => {
+                const stats = counts[e.experiment_id] || { finished: 0, total: 0 };
+
                 const tr = el('tr');
                 tr.appendChild(el('td', {}, [e.experiment_id]));
                 tr.appendChild(el('td', {}, [e.name]));
                 tr.appendChild(el('td', {}, [e.status ? e.status.toUpperCase() : '']));
                 tr.appendChild(el('td', {}, [new Date(e.start_ts).toLocaleString()]));
                 tr.appendChild(el('td', {}, [e.end_ts ? new Date(e.end_ts).toLocaleString() : '']));
-                tr.appendChild(el('td', {}, [String(counts[e.experiment_id] || 0)]));
+                tr.appendChild(el('td', {}, [String(stats.finished)]));
+                tr.appendChild(el('td', {}, [String(stats.total)]));
 
                 const actionTd = el('td');
                 if (e.status === 'ended') {
@@ -466,8 +498,44 @@
                 expBody.appendChild(tr);
             });
 
+            // ---- Summary rows inside table, like accounting totals ----
+
+            // Strays row: label + numbers in Finished / Entries
+            const strayTr = el('tr');
+            strayTr.appendChild(el('td', {}, [''])); // Experiment ID
+            strayTr.appendChild(el('td', {}, [''])); // Name
+            strayTr.appendChild(el('td', {}, [''])); // Status
+            strayTr.appendChild(el('td', {}, [''])); // Start
+            strayTr.appendChild(el('td', {}, [''])); // End
+            strayTr.appendChild(
+                el('td', {}, [`Strays: ${entryStats.strayFinished}`]) // Finished col
+            );
+            strayTr.appendChild(
+                el('td', {}, [String(entryStats.strayTotal)])          // Entries col
+            );
+            strayTr.appendChild(el('td', {}, ['']));                   // Action
+            expBody.appendChild(strayTr);
+
+            // Total row: same style
+            const totalTr = el('tr');
+            totalTr.appendChild(el('td', {}, ['']));
+            totalTr.appendChild(el('td', {}, ['']));
+            totalTr.appendChild(el('td', {}, ['']));
+            totalTr.appendChild(el('td', {}, ['']));
+            totalTr.appendChild(el('td', {}, ['']));
+            totalTr.appendChild(
+                el('td', {}, [`Total: ${entryStats.totalFinished}`])   // Finished col
+            );
+            totalTr.appendChild(
+                el('td', {}, [String(entryStats.totalTotal)])          // Entries col
+            );
+            totalTr.appendChild(el('td', {}, ['']));
+            expBody.appendChild(totalTr);
+
             expTable.appendChild(expBody);
             manage.appendChild(expTable);
+            app.appendChild(manage);
+
 
             // Summary line UNDER the table, outside the frame
             const expSummary = el('div', { class: 'row exp-summary' });
@@ -547,20 +615,33 @@
                 sessHeaderRow.appendChild(el('h2', {}, ['Sessions']));
 
                 const sessAll = sessionsFromEvents(evs).filter(filterFn || (() => true));
-                const sessRows = sessAll.map(s => ({
-                    session_id: s.session_id,
-                    started: s.started_ts ? new Date(s.started_ts).toLocaleString() : '',
-                    upload_consent: s.upload_consent === null
-                        ? ''
-                        : (s.upload_consent ? 'true' : 'false'),
-                    finished: s.finished ? 'true' : 'false',
-                    channel: s.channel || '',
-                    prolific_id: s.prolific_id || '',
-                    experiments: (s.started_ts
-                        ? experimentsForSession(s.started_ts).map(e => e.name).join(', ')
-                        : ''),
-                    routes: s.routes.join(', ')
-                }));
+                const sessRows = sessAll.map(s => {
+                    const expList = s.started_ts
+                        ? experimentsForSession(s.started_ts).map(e => e.name)
+                        : [];
+
+                    let expLabel = '';
+                    if (!expList.length && s.started_ts) {
+                        // ownerless session
+                        expLabel = '(Stray)';
+                    } else {
+                        expLabel = expList.join(', ');
+                    }
+
+                    return {
+                        session_id: s.session_id,
+                        started: s.started_ts ? new Date(s.started_ts).toLocaleString() : '',
+                        upload_consent: s.upload_consent === null
+                            ? ''
+                            : (s.upload_consent ? 'true' : 'false'),
+                        finished: s.finished ? 'true' : 'false',
+                        channel: s.channel || '',
+                        prolific_id: s.prolific_id || '',
+                        experiments: expLabel,
+                        routes: s.routes.join(', ')
+                    };
+                });
+
 
                 const sessHeaders = [
                     'session_id',

@@ -147,9 +147,11 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
 
     function sessionsFromEvents(evs) {
         const by = {};
+
         for (const ev of evs) {
             const sid = ev.session_id;
             if (!sid) continue;
+
             if (!by[sid]) {
                 by[sid] = {
                     session_id: sid,
@@ -158,33 +160,56 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                     upload_consent: null,
                     routes: new Set(),
                     channel: null,
-                    prolific_id: null
+                    prolific_id: null,
                 };
             }
+
+            const s = by[sid];
+
+            // Basic meta
             if (ev.name === 'session_meta') {
-                by[sid].channel = ev.channel || by[sid].channel;
-                by[sid].prolific_id = ev.prolific_id || by[sid].prolific_id;
+                s.channel = ev.channel || s.channel;
+                s.prolific_id = ev.prolific_id || s.prolific_id;
             }
+
+            // Explicit consent signals
             if (ev.name === 'consent_accept') {
-                by[sid].upload_consent = true;
-                if (!by[sid].started_ts) by[sid].started_ts = ev.ts;
+                s.upload_consent = true;
+                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
             }
             if (ev.name === 'consent_decline') {
-                by[sid].upload_consent = false;
-                if (!by[sid].started_ts) by[sid].started_ts = ev.ts;
+                s.upload_consent = false;
+                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
             }
+
+            // Case starts – definitive routes
             if (ev.name === 'case_start') {
-                if (!by[sid].started_ts) by[sid].started_ts = ev.ts;
-                by[sid].routes.add(ev.route_code);
+                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
+                if (ev.route_code) s.routes.add(ev.route_code);
             }
+
+            // Failsafe: infer consent + routes from transcript commits
+            if (ev.name === 'transcript_commit') {
+                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
+                if (ev.route_code) s.routes.add(ev.route_code);
+
+                // If there is activity but no explicit consent info, treat as "consent given"
+                if (s.upload_consent === null) s.upload_consent = true;
+            }
+
             if (ev.name === 'session_finish') {
-                by[sid].finished = true;
+                s.finished = true;
             }
         }
+
         return Object.values(by)
-            .map(s => ({ ...s, routes: Array.from(s.routes) }))
+            .map(s => ({
+                ...s,
+                routes: Array.from(s.routes).sort(),
+            }))
             .sort((a, b) => (a.started_ts || 0) - (b.started_ts || 0));
     }
+
 
     function rawRows(evs, filterFn) {
         const rows = evs
@@ -277,6 +302,20 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         }
         return { columns: ['session_id', ...cols, ...timeCols], data: Object.values(by) };
     }
+    // ----- completeness checker for sessions -----
+    // adjust this if your design has a different number of cases
+    const EXPECTED_CASES = [1, 2, 3, 4, 5, 6, 7, 8];
+
+    function caseCoverageForSession(evs, sessionId) {
+        const cases = new Set();
+        evs.forEach(ev => {
+            if (ev.name === 'transcript_commit' && ev.session_id === sessionId) {
+                cases.add(ev.case_index);
+            }
+        });
+        return Array.from(cases).sort((a, b) => a - b);
+    }
+
 
     function el(t, a, c) {
         const n = document.createElement(t);
@@ -614,6 +653,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             sessHeaderRow.appendChild(el('h2', {}, ['Sessions']));
 
             const sessAll = sessionsFromEvents(evs).filter(filterFn || (() => true));
+            const sessAll = sessionsFromEvents(evs).filter(filterFn || (() => true));
             const sessRows = sessAll.map(s => {
                 const expList = s.started_ts
                     ? experimentsForSession(s.started_ts).map(e => e.name)
@@ -626,6 +666,11 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                     expLabel = expList.join(', ');
                 }
 
+                // --- NEW: completeness check ---
+                const covered = caseCoverageForSession(evs, s.session_id);      // e.g. [1,2,5,6,7,8]
+                const isComplete = EXPECTED_CASES.every(k => covered.includes(k));
+                const completeLabel = isComplete ? 'OK' : 'INCOMPLETE';
+
                 return {
                     session_id: s.session_id,
                     started: s.started_ts ? new Date(s.started_ts).toLocaleString() : '',
@@ -636,7 +681,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                     channel: s.channel || '',
                     prolific_id: s.prolific_id || '',
                     experiments: expLabel,
-                    routes: s.routes.join(', ')
+                    routes: s.routes.join(', '),
+                    complete: completeLabel         // <-- new column
                 };
             });
 
@@ -648,8 +694,10 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                 'channel',
                 'prolific_id',
                 'experiments',
-                'routes'
+                'routes',
+                'complete'      // NEW
             ];
+
 
             const sessDownloadBtn = el('button', { class: 'btn' }, ['Download CSV']);
             sessDownloadBtn.onclick = () => downloadCSV('sessions.csv', sessHeaders, sessRows);

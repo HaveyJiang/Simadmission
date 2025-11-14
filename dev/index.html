@@ -34,7 +34,7 @@
             white-space: nowrap;
         }
 
-        /* label cell in Strays / Total rows (End column) */
+        /* Label cell in Strays / Total rows (End column) */
         .exp-summary-label {
             text-align: right;
             font-weight: bold;
@@ -45,20 +45,25 @@
     <div id="app"></div>
 
     <script>
-const SUPABASE_URL = 'https://mmpjvhlxqebznermjznl.supabase.co';
+const SUPABASE_URL  = 'https://mmpjvhlxqebznermjznl.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
 
 const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
+
+// ----- completeness checker for sessions -----
+const EXPECTED_CASES = [1, 2, 3, 4, 5, 6, 7, 8];
 
 (function () {
     const app = document.getElementById('app');
     const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
 
     const state = {
-        tab: localStorage.getItem('dev_tab') || 'all',
+        tab:   localStorage.getItem('dev_tab')   || 'all',
         expId: localStorage.getItem('dev_expId') || null,
-        newExpName: ''   // text in Experiment name box
+        newExpName: ''   // text currently in "Experiment name" box
     };
+
+    // ---------- local storage helpers ----------
 
     function load(k, d) {
         const v = localStorage.getItem(k);
@@ -69,12 +74,14 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         localStorage.setItem(k, JSON.stringify(v));
     }
 
+    // ---------- experiments ----------
+
     function getExperiments() {
         return load('experiments', []);
     }
 
-    function setExperiments(a) {
-        save('experiments', a);
+    function setExperiments(arr) {
+        save('experiments', arr);
     }
 
     function startExperiment(name) {
@@ -89,14 +96,14 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         const exps = getExperiments();
         const e = {
             experiment_id: 'E' + Math.floor(Math.random() * 1e6) + '-' + Date.now(),
-            name: name || ('Exp ' + (exps.length + 1)),
+            name:     name || ('Exp ' + (exps.length + 1)),
             start_ts: Date.now(),
-            end_ts: null,
-            status: 'active'
+            end_ts:   null,
+            status:   'active'
         };
         exps.push(e);
         setExperiments(exps);
-        state.newExpName = ''; // clear after starting
+        state.newExpName = '';
         render();
     }
 
@@ -110,6 +117,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         );
         render();
     }
+
+    // ---------- fetching events ----------
 
     async function fetchEventsFromDB() {
         try {
@@ -129,8 +138,11 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
     async function getEvents() {
         const fromDb = await fetchEventsFromDB();
         if (fromDb && fromDb.length) return fromDb;
+        // fallback to local mirror
         return load('exp_events', []);
     }
+
+    // ---------- experiment mapping helpers ----------
 
     function experimentsForSession(ts) {
         return getExperiments().filter(
@@ -145,6 +157,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         );
     }
 
+    // ---------- sessions reconstruction (with inference) ----------
+
     function sessionsFromEvents(evs) {
         const by = {};
 
@@ -154,25 +168,25 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
 
             if (!by[sid]) {
                 by[sid] = {
-                    session_id: sid,
-                    started_ts: null,
-                    finished: false,
+                    session_id:    sid,
+                    started_ts:    null,
+                    finished:      false,
                     upload_consent: null,
-                    routes: new Set(),
-                    channel: null,
-                    prolific_id: null,
+                    routes:        new Set(),
+                    channel:       null,
+                    prolific_id:   null
                 };
             }
 
             const s = by[sid];
 
-            // Basic meta
+            // Meta
             if (ev.name === 'session_meta') {
-                s.channel = ev.channel || s.channel;
+                s.channel     = ev.channel     || s.channel;
                 s.prolific_id = ev.prolific_id || s.prolific_id;
             }
 
-            // Explicit consent signals
+            // Explicit consent
             if (ev.name === 'consent_accept') {
                 s.upload_consent = true;
                 if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
@@ -188,13 +202,15 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                 if (ev.route_code) s.routes.add(ev.route_code);
             }
 
-            // Failsafe: infer consent + routes from transcript commits
+            // Transcript commits – infer consent + routes if missing
             if (ev.name === 'transcript_commit') {
                 if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
                 if (ev.route_code) s.routes.add(ev.route_code);
 
-                // If there is activity but no explicit consent info, treat as "consent given"
-                if (s.upload_consent === null) s.upload_consent = true;
+                if (s.upload_consent === null) {
+                    // If they are producing transcripts, treat as consented
+                    s.upload_consent = true;
+                }
             }
 
             if (ev.name === 'session_finish') {
@@ -205,24 +221,25 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         return Object.values(by)
             .map(s => ({
                 ...s,
-                routes: Array.from(s.routes).sort(),
+                routes: Array.from(s.routes).sort()
             }))
             .sort((a, b) => (a.started_ts || 0) - (b.started_ts || 0));
     }
 
+    // ---------- transcript rows helpers ----------
 
     function rawRows(evs, filterFn) {
         const rows = evs
             .filter(e => e.name === 'transcript_commit')
             .map(e => ({
-                ts: e.ts,
-                session_id: e.session_id,
-                case_index: e.case_index,
-                within_case_index: e.within_case_index,
-                route_code: e.route_code,
-                transcript_type: e.transcript_type,
-                letters: (e.letters_shown_order || []).join(' '),
-                slider_value: e.slider_value,
+                ts:                 e.ts,
+                session_id:         e.session_id,
+                case_index:         e.case_index,
+                within_case_index:  e.within_case_index,
+                route_code:         e.route_code,
+                transcript_type:    e.transcript_type,
+                letters:            (e.letters_shown_order || []).join(' '),
+                slider_value:       e.slider_value,
                 transcript_time_ms: e.transcript_time_ms
             }))
             .sort((a, b) => a.ts - b.ts);
@@ -245,32 +262,32 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         const base = rawRows(evs, filterFn);
         return base.map(r => {
             const s = bySid[r.session_id] || {};
-            const startedTs = s.started_ts || null;
+            const startedTs    = s.started_ts || null;
             const startedLocal = startedTs ? new Date(startedTs).toLocaleString() : '';
 
             return {
-                ts: r.ts,
-                ts_local: r.ts ? new Date(r.ts).toLocaleString() : '',
-                session_id: r.session_id,
-                case_index: r.case_index,
-                within_case_index: r.within_case_index,
-                route_code: r.route_code,
-                transcript_type: r.transcript_type,
-                letters: r.letters,
-                slider_value: r.slider_value,
+                ts:                 r.ts,
+                ts_local:           r.ts ? new Date(r.ts).toLocaleString() : '',
+                session_id:         r.session_id,
+                case_index:         r.case_index,
+                within_case_index:  r.within_case_index,
+                route_code:         r.route_code,
+                transcript_type:    r.transcript_type,
+                letters:            r.letters,
+                slider_value:       r.slider_value,
                 transcript_time_ms: r.transcript_time_ms,
-                started_ts: startedTs,
-                started_local: startedLocal,
-                upload_consent: s.upload_consent === null
+                started_ts:         startedTs,
+                started_local:      startedLocal,
+                upload_consent:     s.upload_consent === null
                     ? ''
                     : (s.upload_consent ? 'true' : 'false'),
-                finished: s.finished ? 'true' : 'false',
-                channel: s.channel || '',
-                prolific_id: s.prolific_id || '',
-                experiments: startedTs
+                finished:           s.finished ? 'true' : 'false',
+                channel:            s.channel || '',
+                prolific_id:        s.prolific_id || '',
+                experiments:        startedTs
                     ? experimentsForSession(startedTs).map(e => e.name).join(', ')
                     : '',
-                session_routes: (s.routes || []).join(', ')
+                session_routes:     (s.routes || []).join(', ')
             };
         });
     }
@@ -302,9 +319,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         }
         return { columns: ['session_id', ...cols, ...timeCols], data: Object.values(by) };
     }
-    // ----- completeness checker for sessions -----
-    // adjust this if your design has a different number of cases
-    const EXPECTED_CASES = [1, 2, 3, 4, 5, 6, 7, 8];
+
+    // ---------- completeness helper ----------
 
     function caseCoverageForSession(evs, sessionId) {
         const cases = new Set();
@@ -316,39 +332,37 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         return Array.from(cases).sort((a, b) => a - b);
     }
 
+    // ---------- generic DOM helpers / table / downloads ----------
 
-    function el(t, a, c) {
+    function el(t, attrs, children) {
         const n = document.createElement(t);
-        a = a || {};
-        for (const k in a) {
-            if (k === 'class') n.className = a[k];
-            else if (k === 'html') n.innerHTML = a[k];
-            else n.setAttribute(k, a[k]);
+        attrs = attrs || {};
+        for (const k in attrs) {
+            if (k === 'class')      n.className = attrs[k];
+            else if (k === 'html')  n.innerHTML = attrs[k];
+            else                    n.setAttribute(k, attrs[k]);
         }
-        (c || []).forEach(x =>
+        (children || []).forEach(x =>
             n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x)
         );
         return n;
     }
 
-    function table(hs, rows) {
+    function table(headers, rows) {
         const t = el('table');
         const thead = el('thead');
         const trh = el('tr');
-        hs.forEach(h => {
-            const th = el('th', {}, [h]);
-            trh.appendChild(th);
-        });
+        headers.forEach(h => trh.appendChild(el('th', {}, [h])));
         thead.appendChild(trh);
         t.appendChild(thead);
 
         const tb = el('tbody');
         rows.forEach(r => {
             const tr = el('tr');
-            hs.forEach(h => {
+            headers.forEach(h => {
                 const td = el('td');
-                td.textContent =
-                    (r[h] !== undefined && r[h] !== null) ? String(r[h]) : '';
+                const v = r[h];
+                td.textContent = (v !== undefined && v !== null) ? String(v) : '';
                 tr.appendChild(td);
             });
             tb.appendChild(tr);
@@ -395,7 +409,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     }
 
-    // Count sessions per experiment / stray / total, with "finished" info
+    // ---------- experiment counts (finished / total / strays / total) ----------
+
     function experimentEntryCounts(evs) {
         const exps = getExperiments();
         const sessions = sessionsFromEvents(evs);
@@ -406,9 +421,9 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         });
 
         let strayFinished = 0;
-        let strayTotal = 0;
+        let strayTotal    = 0;
         let totalFinished = 0;
-        const totalTotal = sessions.length;
+        const totalTotal  = sessions.length;
 
         sessions.forEach(s => {
             const ts = s.started_ts || null;
@@ -418,7 +433,6 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             const owned = ts ? experimentsForSession(ts) : [];
 
             if (!owned.length) {
-                // ownerless (Stray)
                 strayTotal++;
                 if (finished) strayFinished++;
             } else {
@@ -441,11 +455,13 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         };
     }
 
+    // ---------- main render ----------
+
     async function render() {
         const evs = await getEvents();
         app.innerHTML = '';
 
-        // Header with refresh button
+        // Header row
         const headerRow = el('div', { class: 'row' });
         const title = el('h1', {}, ['Developer Portal']);
 
@@ -470,7 +486,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         updateBar.appendChild(updatedLabel);
         app.appendChild(updateBar);
 
-        // ==== Manage experiments ====
+        // ===== Manage experiments =====
+
         const manage = el('section');
 
         const controlRow = el('div', { class: 'row' });
@@ -494,7 +511,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         controlRow.appendChild(exportBtn);
         manage.appendChild(controlRow);
 
-        // Experiments table (with Finished + Entries)
+        // Experiments table
         const exps = getExperiments();
         const entryStats = experimentEntryCounts(evs);
         const counts = entryStats.counts;
@@ -502,7 +519,6 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         const expTable = el('table', { class: 'exp-table' });
         const expHead = el('thead');
         const expHeadRow = el('tr');
-
         const expHeaders = [
             'Experiment ID',
             'Name',
@@ -513,10 +529,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             'Entries',
             'Action'
         ];
-
-        expHeaders.forEach(h => {
-            expHeadRow.appendChild(el('th', {}, [h]));
-        });
+        expHeaders.forEach(h => expHeadRow.appendChild(el('th', {}, [h])));
         expHead.appendChild(expHeadRow);
         expTable.appendChild(expHead);
 
@@ -549,37 +562,37 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
 
         // Strays row – label in End column, counts in Finished & Entries
         const strayTr = el('tr');
-        strayTr.appendChild(el('td', {}, ['']));               // Experiment ID
-        strayTr.appendChild(el('td', {}, ['']));               // Name
-        strayTr.appendChild(el('td', {}, ['']));               // Status
-        strayTr.appendChild(el('td', {}, ['']));               // Start
-        strayTr.appendChild(                                   // End (label)
+        strayTr.appendChild(el('td', {}, [''])); // Experiment ID
+        strayTr.appendChild(el('td', {}, [''])); // Name
+        strayTr.appendChild(el('td', {}, [''])); // Status
+        strayTr.appendChild(el('td', {}, [''])); // Start
+        strayTr.appendChild(
             el('td', { class: 'exp-summary-label' }, ['Strays:'])
-        );
-        strayTr.appendChild(                                   // Finished (count)
+        ); // End (label)
+        strayTr.appendChild(
             el('td', {}, [String(entryStats.strayFinished)])
-        );
-        strayTr.appendChild(                                   // Entries (count)
+        ); // Finished
+        strayTr.appendChild(
             el('td', {}, [String(entryStats.strayTotal)])
-        );
-        strayTr.appendChild(el('td', {}, ['']));               // Action
+        ); // Entries
+        strayTr.appendChild(el('td', {}, [''])); // Action
         expBody.appendChild(strayTr);
 
-        // Total row – same style
+        // Total row – label in End column, counts in Finished & Entries
         const totalTr = el('tr');
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(
-            el('td', { class: 'exp-summary-label' }, ['Total:']) // End (label)
-        );
+            el('td', { class: 'exp-summary-label' }, ['Total:'])
+        ); // End (label)
         totalTr.appendChild(
-            el('td', {}, [String(entryStats.totalFinished)])     // Finished total
-        );
+            el('td', {}, [String(entryStats.totalFinished)])
+        ); // Finished total
         totalTr.appendChild(
-            el('td', {}, [String(entryStats.totalTotal)])        // Entries total
-        );
+            el('td', {}, [String(entryStats.totalTotal)])
+        ); // Entries total
         totalTr.appendChild(el('td', {}, ['']));
         expBody.appendChild(totalTr);
 
@@ -587,7 +600,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         manage.appendChild(expTable);
         app.appendChild(manage);
 
-        // ==== Tabs ====
+        // ===== Tabs (By Experiment / Pending / All) =====
+
         const tabs = el('section');
         const tabbar = el('div', { class: 'tabbar' });
         const t1 = el('button', { class: 'tab ' + (state.tab === 'exp' ? 'active' : '') }, ['By Experiment']);
@@ -612,9 +626,11 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             content.innerHTML = '';
 
             let filterFn = null;
+
             if (which === 'pending') {
                 filterFn = s => isPendingSession(s.started_ts || 0);
             }
+
             if (which === 'exp') {
                 const exps = getExperiments();
                 const bar = el('div', { class: 'row' });
@@ -647,12 +663,11 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                 };
             }
 
-            // Sessions
+            // ----- Sessions -----
             const sessSec = el('section');
             const sessHeaderRow = el('div', { class: 'row' });
             sessHeaderRow.appendChild(el('h2', {}, ['Sessions']));
 
-            const sessAll = sessionsFromEvents(evs).filter(filterFn || (() => true));
             const sessAll = sessionsFromEvents(evs).filter(filterFn || (() => true));
             const sessRows = sessAll.map(s => {
                 const expList = s.started_ts
@@ -666,9 +681,9 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                     expLabel = expList.join(', ');
                 }
 
-                // --- NEW: completeness check ---
-                const covered = caseCoverageForSession(evs, s.session_id);      // e.g. [1,2,5,6,7,8]
-                const isComplete = EXPECTED_CASES.every(k => covered.includes(k));
+                // completeness check
+                const covered      = caseCoverageForSession(evs, s.session_id);
+                const isComplete   = EXPECTED_CASES.every(k => covered.includes(k));
                 const completeLabel = isComplete ? 'OK' : 'INCOMPLETE';
 
                 return {
@@ -682,7 +697,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                     prolific_id: s.prolific_id || '',
                     experiments: expLabel,
                     routes: s.routes.join(', '),
-                    complete: completeLabel         // <-- new column
+                    complete: completeLabel
                 };
             });
 
@@ -695,9 +710,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
                 'prolific_id',
                 'experiments',
                 'routes',
-                'complete'      // NEW
+                'complete'
             ];
-
 
             const sessDownloadBtn = el('button', { class: 'btn' }, ['Download CSV']);
             sessDownloadBtn.onclick = () => downloadCSV('sessions.csv', sessHeaders, sessRows);
@@ -707,7 +721,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             sessSec.appendChild(table(sessHeaders, sessRows));
             content.appendChild(sessSec);
 
-            // Raw Data
+            // ----- Raw Data -----
             const rawSec = el('section');
             const rawHeaderRow = el('div', { class: 'row' });
             rawHeaderRow.appendChild(el('h2', {}, ['Raw Data']));
@@ -725,9 +739,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             ];
 
             const flat = flatRows(evs, filterFn);
-            const flatHeaders = flat.length
-                ? Object.keys(flat[0])
-                : rawDisplayHeaders;
+            const flatHeaders = flat.length ? Object.keys(flat[0]) : rawDisplayHeaders;
 
             const rawDownloadBtn = el('button', { class: 'btn' }, ['Download CSV']);
             rawDownloadBtn.onclick = () => {
@@ -742,7 +754,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             rawSec.appendChild(table(rawDisplayHeaders, rawRowsData));
             content.appendChild(rawSec);
 
-            // Summary
+            // ----- Summary (reordered) -----
             const sumSec = el('section');
             const head = el('div', { class: 'row' });
             head.appendChild(el('h2', {}, ['Summary (reordered)']));

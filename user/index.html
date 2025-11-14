@@ -28,34 +28,51 @@
             };
 
             // ---- Prolific channel + PID parsing (robust)
-const qp = new URLSearchParams(location.search);
+            const qp = new URLSearchParams(location.search);
 
-// Accept multiple parameter names (real Prolific uses PROLIFIC_PID)
-const rawPid =
-  qp.get('PROLIFIC_PID') ||
-  qp.get('prolific_pid') ||
-  qp.get('PID') ||
-  qp.get('pid') ||
-  null;
+            // Accept multiple parameter names (real Prolific uses PROLIFIC_PID)
+            const rawPid =
+              qp.get('PROLIFIC_PID') ||
+              qp.get('prolific_pid') ||
+              qp.get('PID') ||
+              qp.get('pid') ||
+              null;
 
-// Ignore Prolific preview placeholders like {{PROLIFIC_PID}}
-const isTemplate = typeof rawPid === 'string' && /\{\{.*\}\}/.test(rawPid);
-let prolific_id = (!rawPid || isTemplate) ? null : rawPid;
+            // Ignore Prolific preview placeholders like {{PROLIFIC_PID}}
+            const isTemplate = typeof rawPid === 'string' && /\{\{.*\}\}/.test(rawPid);
+            let prolific_id = (!rawPid || isTemplate) ? null : rawPid;
 
-// Channel rules:
-// 1) If caller specifies ?channel=Prolific exactly → use it
-// 2) Else, if a valid PID exists → treat as Prolific
-// 3) Else → Others
-let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? 'Prolific' : 'Others');// ---- Small DOM helpers
+            // Channel rules:
+            // 1) If caller specifies ?channel=Prolific exactly → use it
+            // 2) Else, if a valid PID exists → treat as Prolific
+            // 3) Else → Others
+            let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? 'Prolific' : 'Others');
+
+            // ---- Small DOM helpers
             function el(t, a, c) {
                 const n = document.createElement(t); a = a || {};
-                for (const k in a) { if (k === 'class') n.className = a[k]; else if (k === 'html') n.innerHTML = a[k]; else n.setAttribute(k, a[k]); }
+                for (const k in a) {
+                    if (k === 'class') n.className = a[k];
+                    else if (k === 'html') n.innerHTML = a[k];
+                    else n.setAttribute(k, a[k]);
+                }
                 (c || []).forEach(x => n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x));
                 return n;
             }
             function fadeLines(container, lines, onDone) {
-                container.innerHTML = ''; const w = document.createElement('div'); w.className = 'center'; container.appendChild(w);
-                let i = 0; (function step() { if (i >= lines.length) { onDone && onDone(); return; } const d = el('div', { class: 'fade' }, [lines[i]]); w.appendChild(d); setTimeout(() => d.classList.add('show'), 50); i++; setTimeout(step, 800); })();
+                container.innerHTML = '';
+                const w = document.createElement('div');
+                w.className = 'center';
+                container.appendChild(w);
+                let i = 0;
+                (function step() {
+                    if (i >= lines.length) { onDone && onDone(); return; }
+                    const d = el('div', { class: 'fade' }, [lines[i]]);
+                    w.appendChild(d);
+                    setTimeout(() => d.classList.add('show'), 50);
+                    i++;
+                    setTimeout(step, 800);
+                })();
             }
             function consentModal(ok, deny) {
                 app.innerHTML = '';
@@ -63,27 +80,42 @@ let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? '
                     el('h2', {}, ['Consent to Participate']),
                     el('p', {}, ['Your responses will be uploaded for research use in real time.']),
                     el('p', {}, ['']),
-                    el('div', { class: 'btn-row' }, [el('button', { id: 'acc', class: 'btn primary' }, ['Accept']), el('button', { id: 'deny', class: 'btn' }, ['Decline'])])
+                    el('div', { class: 'btn-row' }, [
+                        el('button', { id: 'acc', class: 'btn primary' }, ['Accept']),
+                        el('button', { id: 'deny', class: 'btn' }, ['Decline'])
+                    ])
                 ]);
-                const ctr = el('div', { class: 'center' }, [box]); app.appendChild(ctr);
-                box.querySelector('#acc').onclick = ok; box.querySelector('#deny').onclick = deny;
+                const ctr = el('div', { class: 'center' }, [box]);
+                app.appendChild(ctr);
+                box.querySelector('#acc').onclick = ok;
+                box.querySelector('#deny').onclick = deny;
             }
             function mask(msg) {
-                const m = document.querySelector('.mask'); m.textContent = msg || 'Loading…'; m.classList.add('show'); return () => m.classList.remove('show');
+                const m = document.querySelector('.mask');
+                m.textContent = msg || 'Loading…';
+                m.classList.add('show');
+                return () => m.classList.remove('show');
             }
             function sliderRow(val, onCommit) {
-                const out = el('span', { class: 'value' }, [String(val) + '%']); const s = el('input', { type: 'range', min: '0', max: '100', value: String(val), step: '1' });
-                s.oninput = () => { out.textContent = s.value + '%'; }; const btn = el('button', { class: 'btn primary' }, ['Confirm']); btn.onclick = () => onCommit(Number(s.value));
-                return el('div', { class: 'slider-row' }, [el('label', {}, ['Assumed likelihood to pass this round:']), s, out, btn]);
+                const out = el('span', { class: 'value' }, [String(val) + '%']);
+                const s = el('input', { type: 'range', min: '0', max: '100', value: String(val), step: '1' });
+                s.oninput = () => { out.textContent = s.value + '%'; };
+                const btn = el('button', { class: 'btn primary' }, ['Confirm']);
+                btn.onclick = () => onCommit(Number(s.value));
+                return el('div', { class: 'slider-row' }, [
+                    el('label', {}, ['Assumed likelihood to pass this round:']),
+                    s,
+                    out,
+                    btn
+                ]);
             }
-            function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); } function load(k, d) { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }
+            function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+            function load(k, d) { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }
 
             // Same-device preview channel
             const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
 
             // ---- Supabase write (skip if not configured)
-            // ---- Supabase write (skip if not configured)
-
             // All unsynced DB rows are kept here until we get a 2xx from Supabase.
             const UPLOAD_KEY = 'upload_queue_v2';
 
@@ -165,10 +197,23 @@ let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? '
             // When we regain connectivity, try again.
             window.addEventListener('online', flushUploadQueue);
 
+            // Also periodically retry, in case there was a transient server error.
+            setInterval(flushUploadQueue, 10000);
 
             // Unified event sink: local mirror + Supabase
             function stream(e) {
-                const arr = load('exp_events', []); arr.push({ type: 'event', ...e }); save('exp_events', arr);
+                // Ensure every event has session_id & ts before storing / uploading
+                if (!e.session_id && session && session.session_id) {
+                    e.session_id = session.session_id;
+                }
+                if (!e.ts) {
+                    e.ts = Date.now();
+                }
+
+                const arr = load('exp_events', []);
+                arr.push({ type: 'event', ...e });
+                save('exp_events', arr);
+
                 try { bc && bc.postMessage({ type: 'event', ...e }); } catch (_) { }
                 postEventToDB(e);
             }
@@ -183,11 +228,24 @@ let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? '
                 const seen = new Set(), out = []; for (const p of res) { const s = p.join(''); if (!seen.has(s)) { seen.add(s); out.push(p); } }
                 return out;
             }
-            const ALPHA_ROWS = uniquePerms(['A', 'A', 'A', 'B', 'B']); const BETA_ROWS = uniquePerms(['A', 'A', 'B', 'B', 'B']);
-            function routes() { const t = ['A', 'B'], r = []; for (const i of t) for (const j of t) for (const k of t) r.push(i + j + k); return r; }
+            const ALPHA_ROWS = uniquePerms(['A', 'A', 'A', 'B', 'B']);
+            const BETA_ROWS = uniquePerms(['A', 'A', 'B', 'B', 'B']);
+            function routes() {
+                const t = ['A', 'B'], r = [];
+                for (const i of t) for (const j of t) for (const k of t) r.push(i + j + k);
+                return r;
+            }
 
             // --- Session lifecycle
-            const session = { session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5), started_ts: Date.now(), upload_consent: null, finished: false, channel, prolific_id };
+            const session = {
+                session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5),
+                started_ts: Date.now(),
+                upload_consent: null,
+                finished: false,
+                channel,
+                prolific_id
+            };
+
             stream({ name: 'session_meta', session_id: session.session_id, ts: Date.now(), channel, prolific_id });
 
             const CASES = shuffle(routes()).slice(0, state.casesCount);
@@ -195,48 +253,109 @@ let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? '
             let currentSlider = state.caseSliderDefault;
 
             function startIntro() {
-                const ctr = document.createElement('div'); ctr.className = 'center'; app.innerHTML = ''; app.appendChild(ctr);
-                fadeLines(ctr, state.introLines, () => { const b = el('button', { class: 'btn primary' }, ['Continue']); b.onclick = showConsent; ctr.appendChild(b); });
+                const ctr = document.createElement('div');
+                ctr.className = 'center';
+                app.innerHTML = '';
+                app.appendChild(ctr);
+                fadeLines(ctr, state.introLines, () => {
+                    const b = el('button', { class: 'btn primary' }, ['Continue']);
+                    b.onclick = showConsent;
+                    ctr.appendChild(b);
+                });
             }
             function showConsent() {
-                consentModal(() => { session.upload_consent = true; stream({ name: 'consent_accept', session_id: session.session_id, ts: Date.now() }); startExperiment(); },
-                    () => { session.upload_consent = false; stream({ name: 'consent_decline', session_id: session.session_id, ts: Date.now() }); app.innerHTML = '<div class="center"><h2>Thank you for your time.</h2></div>'; });
+                consentModal(
+                    () => {
+                        session.upload_consent = true;
+                        stream({ name: 'consent_accept', session_id: session.session_id, ts: Date.now() });
+                        startExperiment();
+                    },
+                    () => {
+                        session.upload_consent = false;
+                        stream({ name: 'consent_decline', session_id: session.session_id, ts: Date.now() });
+                        app.innerHTML = '<div class="center"><h2>Thank you for your time.</h2></div>';
+                    }
+                );
             }
-            function startExperiment() { const un = mask('Preparing Case 1…'); setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax)); }
+            function startExperiment() {
+                const un = mask('Preparing Case 1…');
+                setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax));
+            }
             function nextCase() {
                 if (caseIdx >= state.casesCount) { finish(); return; }
-                routeCode = CASES[caseIdx]; transIdx = 0; caseStart = Date.now(); currentSlider = state.caseSliderDefault;
-                stream({ name: 'case_start', session_id: session.session_id, ts: caseStart, case_index: caseIdx + 1, route_code: routeCode });
+                routeCode = CASES[caseIdx];
+                transIdx = 0;
+                caseStart = Date.now();
+                currentSlider = state.caseSliderDefault;
+                stream({
+                    name: 'case_start',
+                    session_id: session.session_id,
+                    ts: caseStart,
+                    case_index: caseIdx + 1,
+                    route_code: routeCode
+                });
                 nextTranscript();
             }
             function showTranscript(type, onCommit) {
                 app.innerHTML = '';
-                const row = (type === 'A') ? ALPHA_ROWS[Math.floor(Math.random() * ALPHA_ROWS.length)] : BETA_ROWS[Math.floor(Math.random() * BETA_ROWS.length)];
+                const row = (type === 'A')
+                    ? ALPHA_ROWS[Math.floor(Math.random() * ALPHA_ROWS.length)]
+                    : BETA_ROWS[Math.floor(Math.random() * BETA_ROWS.length)];
                 const frame = el('div', { class: 'card focus' });
                 frame.appendChild(el('div', { class: 'subhead' }, ['Semester ', ['X', 'Y', 'Z'][transIdx]]));
                 frame.appendChild(el('div', { class: 'grades' }, [row.join('   ')]));
                 frame.appendChild(el('hr'));
                 frame.appendChild(sliderRow(currentSlider, v => onCommit({ v, row })));
-                app.appendChild(el('div', { class: 'center' }, [el('h2', {}, ['Case ' + (caseIdx + 1) + ' — Transcript ' + (transIdx + 1) + '/3']), frame]));
+                app.appendChild(el('div', { class: 'center' }, [
+                    el('h2', {}, ['Case ' + (caseIdx + 1) + ' — Transcript ' + (transIdx + 1) + '/3']),
+                    frame
+                ]));
             }
             function nextTranscript() {
                 if (transIdx >= 3) {
                     const caseTime = Date.now() - caseStart;
-                    stream({ name: 'case_end', session_id: session.session_id, ts: Date.now(), case_index: caseIdx + 1, route_code: routeCode, case_time_ms: caseTime });
+                    stream({
+                        name: 'case_end',
+                        session_id: session.session_id,
+                        ts: Date.now(),
+                        case_index: caseIdx + 1,
+                        route_code: routeCode,
+                        case_time_ms: caseTime
+                    });
                     caseIdx++;
-                    const un = mask('Loading next case…'); setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax));
+                    const un = mask('Loading next case…');
+                    setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax));
                     return;
                 }
-                const type = routeCode[transIdx]; transStart = Date.now();
+                const type = routeCode[transIdx];
+                transStart = Date.now();
                 showTranscript(type, ({ v, row }) => {
-                    const t = Date.now() - transStart; currentSlider = v;
-                    stream({ name: 'transcript_commit', session_id: session.session_id, ts: Date.now(), case_index: caseIdx + 1, within_case_index: transIdx + 1, route_code: routeCode, transcript_type: type, letters_shown_order: row, slider_value: v, transcript_time_ms: t });
-                    transIdx++; nextTranscript();
+                    const t = Date.now() - transStart;
+                    currentSlider = v;
+                    stream({
+                        name: 'transcript_commit',
+                        session_id: session.session_id,
+                        ts: Date.now(),
+                        case_index: caseIdx + 1,
+                        within_case_index: transIdx + 1,
+                        route_code: routeCode,
+                        transcript_type: type,
+                        letters_shown_order: row,
+                        slider_value: v,
+                        transcript_time_ms: t
+                    });
+                    transIdx++;
+                    nextTranscript();
                 });
             }
             function finish() {
                 session.finished = true;
-                stream({ name: 'session_finish', session_id: session.session_id, ts: Date.now(), finished: true });
+                stream({
+                    name: 'session_finish',
+                    session_id: session.session_id,
+                    ts: Date.now(),
+                    finished: true
+                });
                 app.innerHTML = '<div class="center"><h2>All cases complete.</h2><div class="muted">You may now close this window.</div></div>';
             }
 
@@ -244,6 +363,7 @@ let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? '
 
         })();
     </script>
+
     <!-- 🧪 Debug overlay: shows channel & PID -->
     <div id="debug"
          style="position:fixed;right:12px;bottom:12px;padding:8px 10px;
@@ -256,7 +376,11 @@ let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? '
         window.addEventListener('load', () => {
             const d = document.getElementById('debug');
             // It will display “channel=Prolific | pid=TEST123” etc.
-            d.textContent = `channel=${session?.channel || 'N/A'} | pid=${session?.prolific_id || 'null'}`;
+            try {
+                d.textContent = `channel=${window.channel || 'N/A'} | pid=${window.prolific_id || 'null'}`;
+            } catch (e) {
+                d.textContent = 'debug unavailable';
+            }
         });
     </script>
 

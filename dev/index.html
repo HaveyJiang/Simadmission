@@ -33,6 +33,12 @@
         table.exp-table td {
             white-space: nowrap;
         }
+
+        /* Right-align labels in Finished column for Strays / Total rows */
+        .exp-summary-label {
+            text-align: right;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -49,7 +55,8 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
     const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
     const state = {
         tab: localStorage.getItem('dev_tab') || 'all',
-        expId: localStorage.getItem('dev_expId') || null
+        expId: localStorage.getItem('dev_expId') || null,
+        newExpName: ''   // preserve text typed into experiment name box across auto-refresh
     };
 
     function load(k, d) {
@@ -89,6 +96,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         };
         exps.push(e);
         setExperiments(exps);
+        state.newExpName = ''; // clear the input after starting
         render();
     }
 
@@ -428,6 +436,11 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
 
         const controlRow = el('div', { class: 'row' });
         const inp = el('input', { placeholder: 'Experiment name (optional)' });
+        inp.value = state.newExpName || '';
+        inp.oninput = () => {
+            state.newExpName = inp.value;
+        };
+
         const startBtn = el('button', { class: 'btn primary' }, ['Start Experiment']);
         startBtn.onclick = () => startExperiment(inp.value.trim());
 
@@ -492,18 +505,18 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             expBody.appendChild(tr);
         });
 
-        // Strays row – label in Name, digits align with Finished / Entries
+        // Strays row – label bold & right-aligned in Finished column
         const strayTr = el('tr');
         strayTr.appendChild(el('td', {}, ['']));              // Experiment ID
-        strayTr.appendChild(el('td', {}, ['Strays:']));       // Name label
+        strayTr.appendChild(el('td', {}, ['']));              // Name
         strayTr.appendChild(el('td', {}, ['']));              // Status
         strayTr.appendChild(el('td', {}, ['']));              // Start
         strayTr.appendChild(el('td', {}, ['']));              // End
-        strayTr.appendChild(                                   // Finished
-            el('td', {}, [String(entryStats.strayFinished)])
+        strayTr.appendChild(
+            el('td', { class: 'exp-summary-label' }, ['Strays:']) // Finished (label)
         );
-        strayTr.appendChild(                                   // Entries
-            el('td', {}, [String(entryStats.strayTotal)])
+        strayTr.appendChild(
+            el('td', {}, [String(entryStats.strayTotal)])          // Entries
         );
         strayTr.appendChild(el('td', {}, ['']));              // Action
         expBody.appendChild(strayTr);
@@ -511,15 +524,15 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         // Total row – same style
         const totalTr = el('tr');
         totalTr.appendChild(el('td', {}, ['']));
-        totalTr.appendChild(el('td', {}, ['Total:']));
+        totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(
-            el('td', {}, [String(entryStats.totalFinished)])  // Finished
+            el('td', { class: 'exp-summary-label' }, ['Total:'])   // Finished (label)
         );
         totalTr.appendChild(
-            el('td', {}, [String(entryStats.totalTotal)])     // Entries
+            el('td', {}, [String(entryStats.totalTotal)])          // Entries
         );
         totalTr.appendChild(el('td', {}, ['']));
         expBody.appendChild(totalTr);
@@ -643,7 +656,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             // Raw (display) + pivot-ready CSV
             const rawSec = el('section');
             const rawHeaderRow = el('div', { class: 'row' });
-            rawHeaderRow.appendChild(el('h2', {}, ['Raw Data (long format)']));
+            rawHeaderRow.appendChild(el('h2', {}, ['Raw Data']));   // title simplified
 
             const rawDisplayHeaders = [
                 'ts',

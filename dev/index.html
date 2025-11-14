@@ -339,31 +339,33 @@
             setTimeout(() => URL.revokeObjectURL(a.href), 3000);
         }
 
-        // === NEW: count entries per experiment / stray / total ===
+        // Count sessions per experiment / stray / total
         function experimentEntryCounts(evs) {
             const exps = getExperiments();
             const sessions = sessionsFromEvents(evs);
-            const bySid = {};
-            sessions.forEach(s => { bySid[s.session_id] = s; });
 
+            // init count per experiment
             const counts = {};
             exps.forEach(e => { counts[e.experiment_id] = 0; });
 
             let stray = 0;
-            let total = 0;
+            const total = sessions.length;
 
-            const allTranscripts = rawRows(evs, null); // all entries
+            sessions.forEach(s => {
+                const ts = s.started_ts || null;
+                if (!ts) {
+                    // no clear start time → treat as stray
+                    stray++;
+                    return;
+                }
 
-            allTranscripts.forEach(r => {
-                total++;
-                const s = bySid[r.session_id];
-                const started = s ? s.started_ts : null;
-                const expForSess = started ? experimentsForSession(started) : [];
+                const owned = experimentsForSession(ts);
 
-                if (!expForSess.length) {
+                if (!owned.length) {
                     stray++;
                 } else {
-                    expForSess.forEach(e => {
+                    // count this session once for every experiment it belongs to
+                    owned.forEach(e => {
                         counts[e.experiment_id] = (counts[e.experiment_id] || 0) + 1;
                     });
                 }
@@ -371,6 +373,7 @@
 
             return { counts, stray, total };
         }
+
 
         async function render() {
             const evs = await getEvents();
@@ -417,7 +420,6 @@
             controlRow.appendChild(exportBtn);
             manage.appendChild(controlRow);
 
-            // Experiments table (no title text)
             const exps = getExperiments();
             const entryStats = experimentEntryCounts(evs);
             const counts = entryStats.counts;
@@ -460,33 +462,23 @@
                     actionTd.appendChild(endBtn);
                 }
                 tr.appendChild(actionTd);
+
                 expBody.appendChild(tr);
             });
 
-            // Stray row
-            const strayTr = el('tr');
-            strayTr.appendChild(el('td', {}, ['—']));
-            strayTr.appendChild(el('td', {}, ['Stray']));
-            strayTr.appendChild(el('td', {}, ['']));
-            strayTr.appendChild(el('td', {}, ['']));
-            strayTr.appendChild(el('td', {}, ['']));
-            strayTr.appendChild(el('td', {}, [String(entryStats.stray)]));
-            strayTr.appendChild(el('td', {}, ['']));
-            expBody.appendChild(strayTr);
-
-            // Total row
-            const totalTr = el('tr');
-            totalTr.appendChild(el('td', {}, ['—']));
-            totalTr.appendChild(el('td', {}, ['Total']));
-            totalTr.appendChild(el('td', {}, ['']));
-            totalTr.appendChild(el('td', {}, ['']));
-            totalTr.appendChild(el('td', {}, ['']));
-            totalTr.appendChild(el('td', {}, [String(entryStats.total)]));
-            totalTr.appendChild(el('td', {}, ['']));
-            expBody.appendChild(totalTr);
-
             expTable.appendChild(expBody);
             manage.appendChild(expTable);
+
+            // Summary line UNDER the table, outside the frame
+            const expSummary = el('div', { class: 'row exp-summary' });
+            expSummary.appendChild(
+                el('span', {}, [`Stray sessions (no experiment): ${entryStats.stray}`])
+            );
+            expSummary.appendChild(
+                el('span', { style: 'margin-left:auto' }, [`Total sessions: ${entryStats.total}`])
+            );
+            manage.appendChild(expSummary);
+
             app.appendChild(manage);
 
             // ==== Tabs ====

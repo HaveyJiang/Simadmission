@@ -1,194 +1,263 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Experiment Portal</title>
-
-    <style>
-        body {
-            font-family: sans-serif;
-            margin: 0;
-            padding: 20px;
-        }
-
-        .debug-box {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            background: #222;
-            color: #fff;
-            padding: 8px 12px;
-            font-size: 12px;
-            border-radius: 4px;
-            opacity: 0.85;
-        }
-    </style>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>User Portal</title>
+    <link rel="stylesheet" href="styles/style.css" />
 </head>
-
 <body>
-
-    <h2>User Portal Running…</h2>
-    <p>
-        This is your experiment UI placeholder.
-        Your real experiment content goes here.
-    </p>
-
-    <div id="debug" class="debug-box">Sync: loading…</div>
+    <div id="app"></div>
+    <div class="mask"></div>
 
     <script>
-// ===============================================================
-//  CONFIG
-// ===============================================================
+        // ==== REPLACE with your real Supabase project values ====
+        const SUPABASE_URL = 'https://mmpjvhlxqebznermjznl.supabase.co';
+        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
+        // =======================================================
 
-const SUPABASE_URL  = "https://mmpjvhlxqebznermjznl.supabase.co";
-const SUPABASE_ANON = "YOUR-ANON-KEY-HERE";
+        (function () {
 
-// Local mirror for dev portal (optional)
-function loadLocal(name, def) {
-    const s = localStorage.getItem(name);
-    return s ? JSON.parse(s) : def;
-}
-function saveLocal(name, val) {
-    localStorage.setItem(name, JSON.stringify(val));
-}
+            const app = document.getElementById('app');
+            const state = {
+                casesCount: 8,
+                maskMsMin: 900,
+                maskMsMax: 1500,
+                caseSliderDefault: 50,
+                introLines: ['Initializing experimental interface...', 'Loading session environment...', 'Ready.']
+            };
 
-// BroadcastChannel for dev portal
-const bc = ("BroadcastChannel" in self) ? new BroadcastChannel("exp-stream") : null;
+            // ---- Prolific channel + PID parsing (robust)
+const qp = new URLSearchParams(location.search);
 
-// ===============================================================
-// SESSION ID — guaranteed unique per participant
-// ===============================================================
+// Accept multiple parameter names (real Prolific uses PROLIFIC_PID)
+const rawPid =
+  qp.get('PROLIFIC_PID') ||
+  qp.get('prolific_pid') ||
+  qp.get('PID') ||
+  qp.get('pid') ||
+  null;
 
-let sessionId = localStorage.getItem("session_id");
-if (!sessionId) {
-    sessionId = "S" + Date.now() + "-" + Math.floor(Math.random()*100000);
-    localStorage.setItem("session_id", sessionId);
-}
+// Ignore Prolific preview placeholders like {{PROLIFIC_PID}}
+const isTemplate = typeof rawPid === 'string' && /\{\{.*\}\}/.test(rawPid);
+let prolific_id = (!rawPid || isTemplate) ? null : rawPid;
 
-// ===============================================================
-// ROBUST RELIABLE LOGGING LAYER
-// ===============================================================
+// Channel rules:
+// 1) If caller specifies ?channel=Prolific exactly → use it
+// 2) Else, if a valid PID exists → treat as Prolific
+// 3) Else → Others
+let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? 'Prolific' : 'Others');// ---- Small DOM helpers
+            function el(t, a, c) {
+                const n = document.createElement(t); a = a || {};
+                for (const k in a) { if (k === 'class') n.className = a[k]; else if (k === 'html') n.innerHTML = a[k]; else n.setAttribute(k, a[k]); }
+                (c || []).forEach(x => n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x));
+                return n;
+            }
+            function fadeLines(container, lines, onDone) {
+                container.innerHTML = ''; const w = document.createElement('div'); w.className = 'center'; container.appendChild(w);
+                let i = 0; (function step() { if (i >= lines.length) { onDone && onDone(); return; } const d = el('div', { class: 'fade' }, [lines[i]]); w.appendChild(d); setTimeout(() => d.classList.add('show'), 50); i++; setTimeout(step, 800); })();
+            }
+            function consentModal(ok, deny) {
+                app.innerHTML = '';
+                const box = el('div', { class: 'card' }, [
+                    el('h2', {}, ['Consent to Participate']),
+                    el('p', {}, ['Your responses will be uploaded for research use in real time.']),
+                    el('p', {}, ['']),
+                    el('div', { class: 'btn-row' }, [el('button', { id: 'acc', class: 'btn primary' }, ['Accept']), el('button', { id: 'deny', class: 'btn' }, ['Decline'])])
+                ]);
+                const ctr = el('div', { class: 'center' }, [box]); app.appendChild(ctr);
+                box.querySelector('#acc').onclick = ok; box.querySelector('#deny').onclick = deny;
+            }
+            function mask(msg) {
+                const m = document.querySelector('.mask'); m.textContent = msg || 'Loading…'; m.classList.add('show'); return () => m.classList.remove('show');
+            }
+            function sliderRow(val, onCommit) {
+                const out = el('span', { class: 'value' }, [String(val) + '%']); const s = el('input', { type: 'range', min: '0', max: '100', value: String(val), step: '1' });
+                s.oninput = () => { out.textContent = s.value + '%'; }; const btn = el('button', { class: 'btn primary' }, ['Confirm']); btn.onclick = () => onCommit(Number(s.value));
+                return el('div', { class: 'slider-row' }, [el('label', {}, ['Assumed likelihood to pass this round:']), s, out, btn]);
+            }
+            function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); } function load(k, d) { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }
 
-// --- 1. Persistent upload queue ---
-const UPLOAD_KEY = "upload_queue_v2";
+            // Same-device preview channel
+            const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
 
-function loadQueue() {
-    const raw = localStorage.getItem(UPLOAD_KEY);
-    return raw ? JSON.parse(raw) : [];
-}
-function saveQueue(q) {
-    localStorage.setItem(UPLOAD_KEY, JSON.stringify(q));
-}
+            // ---- Supabase write (skip if not configured)
+            // ---- Supabase write (skip if not configured)
 
-// --- 2. Convert client-side event to DB row ---
-function eventToRow(evt) {
-    return {
-        ts: evt.ts,
-        session_id: evt.session_id || sessionId,
-        name: evt.name,
-        channel: evt.channel || null,
-        prolific_id: evt.prolific_id || null,
-        case_index: evt.case_index ?? null,
-        within_case_index: evt.within_case_index ?? null,
-        route_code: evt.route_code ?? null,
-        transcript_type: evt.transcript_type ?? null,
-        letters: (evt.letters_shown_order || []).join(" "),
-        slider_value: evt.slider_value ?? null,
-        transcript_time_ms: evt.transcript_time_ms ?? null,
-        payload: evt
-    };
-}
+            // All unsynced DB rows are kept here until we get a 2xx from Supabase.
+            const UPLOAD_KEY = 'upload_queue_v2';
 
-// --- 3. Upload queue → Supabase ---
-async function flushUploadQueue() {
-    const q = loadQueue();
-    if (!q.length) {
-        updateDebug("OK (empty)");
-        return;
-    }
+            function loadQueue() {
+                const raw = localStorage.getItem(UPLOAD_KEY);
+                return raw ? JSON.parse(raw) : [];
+            }
 
-    try {
-        const resp = await fetch(`${SUPABASE_URL}/rest/v1/events`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "apikey": SUPABASE_ANON,
-                "Authorization": `Bearer ${SUPABASE_ANON}`,
-                "Prefer": "return=minimal"
-            },
-            body: JSON.stringify(q.map(x => x.row)),
-            keepalive: true
+            function saveQueue(q) {
+                localStorage.setItem(UPLOAD_KEY, JSON.stringify(q));
+            }
+
+            // Helper: turn a client event into a DB row
+            function eventToRow(evt) {
+                return {
+                    ts: evt.ts,
+                    session_id: evt.session_id ?? null,
+                    name: evt.name,
+                    channel: evt.channel ?? null,
+                    prolific_id: evt.prolific_id ?? null,
+                    case_index: evt.case_index ?? null,
+                    within_case_index: evt.within_case_index ?? null,
+                    route_code: evt.route_code ?? null,
+                    transcript_type: evt.transcript_type ?? null,
+                    letters: (evt.letters_shown_order || []).join(' '),
+                    slider_value: evt.slider_value ?? null,
+                    transcript_time_ms: evt.transcript_time_ms ?? null,
+                    payload: evt
+                };
+            }
+
+            // Try to push everything in the local queue to Supabase.
+            async function flushUploadQueue() {
+                if (!SUPABASE_URL || !SUPABASE_ANON || SUPABASE_URL.indexOf('YOUR-PROJECT') !== -1) return;
+
+                const q = loadQueue();
+                if (!q.length) return;
+
+                try {
+                    const resp = await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': SUPABASE_ANON,
+                            'Authorization': `Bearer ${SUPABASE_ANON}`,
+                            'Prefer': 'return=minimal'
+                        },
+                        body: JSON.stringify(q.map(item => item.row)),
+                        keepalive: true
+                    });
+
+                    if (!resp.ok) {
+                        console.warn('Supabase upload failed', resp.status);
+                        // Keep queue for retry.
+                        return;
+                    }
+
+                    // Success: everything in q is now in DB.
+                    localStorage.removeItem(UPLOAD_KEY);
+                } catch (err) {
+                    console.warn('Supabase upload network error', err);
+                    // Keep queue for retry.
+                }
+            }
+
+            // Main entry point for each event: store locally, then try to sync.
+            async function postEventToDB(evt) {
+                if (!SUPABASE_URL || !SUPABASE_ANON || SUPABASE_URL.indexOf('YOUR-PROJECT') !== -1) return;
+
+                const row = eventToRow(evt);
+                const q = loadQueue();
+                q.push({ row });
+                saveQueue(q);
+
+                // Best-effort immediate sync; if it fails, queue stays and will be retried.
+                await flushUploadQueue();
+            }
+
+            // When we regain connectivity, try again.
+            window.addEventListener('online', flushUploadQueue);
+
+
+            // Unified event sink: local mirror + Supabase
+            function stream(e) {
+                const arr = load('exp_events', []); arr.push({ type: 'event', ...e }); save('exp_events', arr);
+                try { bc && bc.postMessage({ type: 'event', ...e }); } catch (_) { }
+                postEventToDB(e);
+            }
+
+            // --- Experiment content & randomization
+            function rand(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
+            function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[a[i], a[j]] = [a[j], a[i]]; } return a; }
+            function uniquePerms(ms) {
+                const map = {}; ms.forEach(x => map[x] = (map[x] || 0) + 1); const keys = Object.keys(map), res = [];
+                function bt(p) { if (p.length === ms.length) { res.push(p.slice()); return; } for (const k of keys) { if (map[k] > 0) { map[k]--; p.push(k); bt(p); p.pop(); map[k]++; } } }
+                bt([]);
+                const seen = new Set(), out = []; for (const p of res) { const s = p.join(''); if (!seen.has(s)) { seen.add(s); out.push(p); } }
+                return out;
+            }
+            const ALPHA_ROWS = uniquePerms(['A', 'A', 'A', 'B', 'B']); const BETA_ROWS = uniquePerms(['A', 'A', 'B', 'B', 'B']);
+            function routes() { const t = ['A', 'B'], r = []; for (const i of t) for (const j of t) for (const k of t) r.push(i + j + k); return r; }
+
+            // --- Session lifecycle
+            const session = { session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5), started_ts: Date.now(), upload_consent: null, finished: false, channel, prolific_id };
+            stream({ name: 'session_meta', session_id: session.session_id, ts: Date.now(), channel, prolific_id });
+
+            const CASES = shuffle(routes()).slice(0, state.casesCount);
+            let caseIdx = 0, transIdx = 0, caseStart = 0, transStart = 0, routeCode = null;
+            let currentSlider = state.caseSliderDefault;
+
+            function startIntro() {
+                const ctr = document.createElement('div'); ctr.className = 'center'; app.innerHTML = ''; app.appendChild(ctr);
+                fadeLines(ctr, state.introLines, () => { const b = el('button', { class: 'btn primary' }, ['Continue']); b.onclick = showConsent; ctr.appendChild(b); });
+            }
+            function showConsent() {
+                consentModal(() => { session.upload_consent = true; stream({ name: 'consent_accept', session_id: session.session_id, ts: Date.now() }); startExperiment(); },
+                    () => { session.upload_consent = false; stream({ name: 'consent_decline', session_id: session.session_id, ts: Date.now() }); app.innerHTML = '<div class="center"><h2>Thank you for your time.</h2></div>'; });
+            }
+            function startExperiment() { const un = mask('Preparing Case 1…'); setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax)); }
+            function nextCase() {
+                if (caseIdx >= state.casesCount) { finish(); return; }
+                routeCode = CASES[caseIdx]; transIdx = 0; caseStart = Date.now(); currentSlider = state.caseSliderDefault;
+                stream({ name: 'case_start', session_id: session.session_id, ts: caseStart, case_index: caseIdx + 1, route_code: routeCode });
+                nextTranscript();
+            }
+            function showTranscript(type, onCommit) {
+                app.innerHTML = '';
+                const row = (type === 'A') ? ALPHA_ROWS[Math.floor(Math.random() * ALPHA_ROWS.length)] : BETA_ROWS[Math.floor(Math.random() * BETA_ROWS.length)];
+                const frame = el('div', { class: 'card focus' });
+                frame.appendChild(el('div', { class: 'subhead' }, ['Semester ', ['X', 'Y', 'Z'][transIdx]]));
+                frame.appendChild(el('div', { class: 'grades' }, [row.join('   ')]));
+                frame.appendChild(el('hr'));
+                frame.appendChild(sliderRow(currentSlider, v => onCommit({ v, row })));
+                app.appendChild(el('div', { class: 'center' }, [el('h2', {}, ['Case ' + (caseIdx + 1) + ' — Transcript ' + (transIdx + 1) + '/3']), frame]));
+            }
+            function nextTranscript() {
+                if (transIdx >= 3) {
+                    const caseTime = Date.now() - caseStart;
+                    stream({ name: 'case_end', session_id: session.session_id, ts: Date.now(), case_index: caseIdx + 1, route_code: routeCode, case_time_ms: caseTime });
+                    caseIdx++;
+                    const un = mask('Loading next case…'); setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax));
+                    return;
+                }
+                const type = routeCode[transIdx]; transStart = Date.now();
+                showTranscript(type, ({ v, row }) => {
+                    const t = Date.now() - transStart; currentSlider = v;
+                    stream({ name: 'transcript_commit', session_id: session.session_id, ts: Date.now(), case_index: caseIdx + 1, within_case_index: transIdx + 1, route_code: routeCode, transcript_type: type, letters_shown_order: row, slider_value: v, transcript_time_ms: t });
+                    transIdx++; nextTranscript();
+                });
+            }
+            function finish() {
+                session.finished = true;
+                stream({ name: 'session_finish', session_id: session.session_id, ts: Date.now(), finished: true });
+                app.innerHTML = '<div class="center"><h2>All cases complete.</h2><div class="muted">You may now close this window.</div></div>';
+            }
+
+            startIntro();
+
+        })();
+    </script>
+    <!-- 🧪 Debug overlay: shows channel & PID -->
+    <div id="debug"
+         style="position:fixed;right:12px;bottom:12px;padding:8px 10px;
+            border-radius:8px;background:#111;color:#0ff;
+            font:12px/1.2 ui-monospace;opacity:.85;z-index:9999">
+    </div>
+
+    <script>
+        // Wait until session info is available
+        window.addEventListener('load', () => {
+            const d = document.getElementById('debug');
+            // It will display “channel=Prolific | pid=TEST123” etc.
+            d.textContent = `channel=${session?.channel || 'N/A'} | pid=${session?.prolific_id || 'null'}`;
         });
-
-        if (!resp.ok) {
-            updateDebug("Upload failed (" + resp.status + ")");
-            return; // keep queue
-        }
-
-        // Success → clear queue
-        localStorage.removeItem(UPLOAD_KEY);
-        updateDebug("Synced " + q.length + " events");
-
-    } catch (err) {
-        updateDebug("Network error; queue kept");
-    }
-}
-
-// Retry on reconnect
-window.addEventListener("online", flushUploadQueue);
-
-// ===============================================================
-// MAIN EVENT LOGGER (called by UI)
-// ===============================================================
-
-function stream(evt) {
-    evt.session_id = sessionId;
-    evt.ts = evt.ts ?? Date.now();
-
-    // 1. Local mirror for dev portal (same-device preview)
-    const arr = loadLocal("exp_events", []);
-    arr.push({ type: "event", ...evt });
-    saveLocal("exp_events", arr);
-
-    // 2. BroadcastChannel — dev portal updates live
-    try { bc && bc.postMessage({ type: "event", ...evt }); } catch (_) {}
-
-    // 3. Reliable DB upload
-    const row = eventToRow(evt);
-    const q = loadQueue();
-    q.push({ row });
-    saveQueue(q);
-    flushUploadQueue();
-}
-
-// ===============================================================
-// Debug widget showing queue status
-// ===============================================================
-
-function updateDebug(text) {
-    const q = loadQueue();
-    document.getElementById("debug").innerText =
-        `Session ${sessionId}\nQueue: ${q.length}\n${text}`;
-}
-
-// Update debug every 2 seconds
-setInterval(() => {
-    updateDebug("running…");
-    flushUploadQueue();
-}, 2000);
-
-// Initial update
-updateDebug("starting…");
-
-// ===============================================================
-// Example event triggers (remove in final build)
-// ===============================================================
-
-setTimeout(() => {
-    stream({ name: "session_meta", channel: "UserPortal" });
-}, 1000);
-
     </script>
 
 </body>

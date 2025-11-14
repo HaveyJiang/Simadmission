@@ -34,7 +34,7 @@
             white-space: nowrap;
         }
 
-        /* Right-align labels in Finished column for Strays / Total rows */
+        /* label cell in Strays / Total rows (End column) */
         .exp-summary-label {
             text-align: right;
             font-weight: bold;
@@ -53,10 +53,11 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
 (function () {
     const app = document.getElementById('app');
     const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
+
     const state = {
         tab: localStorage.getItem('dev_tab') || 'all',
         expId: localStorage.getItem('dev_expId') || null,
-        newExpName: ''   // preserve text typed into experiment name box across auto-refresh
+        newExpName: ''   // text in Experiment name box
     };
 
     function load(k, d) {
@@ -77,8 +78,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
     }
 
     function startExperiment(name) {
-        name = name || '';
-        name = name.trim();
+        name = (name || '').trim();
 
         // "(Stray)" is reserved for system use
         if (name === '(Stray)') {
@@ -96,7 +96,7 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         };
         exps.push(e);
         setExperiments(exps);
-        state.newExpName = ''; // clear the input after starting
+        state.newExpName = ''; // clear after starting
         render();
     }
 
@@ -435,7 +435,10 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         const manage = el('section');
 
         const controlRow = el('div', { class: 'row' });
-        const inp = el('input', { placeholder: 'Experiment name (optional)' });
+        const inp = el('input', {
+            id: 'exp-name-input',
+            placeholder: 'Experiment name (optional)'
+        });
         inp.value = state.newExpName || '';
         inp.oninput = () => {
             state.newExpName = inp.value;
@@ -505,20 +508,22 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             expBody.appendChild(tr);
         });
 
-        // Strays row – label bold & right-aligned in Finished column
+        // Strays row – label in End column, counts in Finished & Entries
         const strayTr = el('tr');
-        strayTr.appendChild(el('td', {}, ['']));              // Experiment ID
-        strayTr.appendChild(el('td', {}, ['']));              // Name
-        strayTr.appendChild(el('td', {}, ['']));              // Status
-        strayTr.appendChild(el('td', {}, ['']));              // Start
-        strayTr.appendChild(el('td', {}, ['']));              // End
-        strayTr.appendChild(
-            el('td', { class: 'exp-summary-label' }, ['Strays:']) // Finished (label)
+        strayTr.appendChild(el('td', {}, ['']));               // Experiment ID
+        strayTr.appendChild(el('td', {}, ['']));               // Name
+        strayTr.appendChild(el('td', {}, ['']));               // Status
+        strayTr.appendChild(el('td', {}, ['']));               // Start
+        strayTr.appendChild(                                   // End (label)
+            el('td', { class: 'exp-summary-label' }, ['Strays:'])
         );
-        strayTr.appendChild(
-            el('td', {}, [String(entryStats.strayTotal)])          // Entries
+        strayTr.appendChild(                                   // Finished (count)
+            el('td', {}, [String(entryStats.strayFinished)])
         );
-        strayTr.appendChild(el('td', {}, ['']));              // Action
+        strayTr.appendChild(                                   // Entries (count)
+            el('td', {}, [String(entryStats.strayTotal)])
+        );
+        strayTr.appendChild(el('td', {}, ['']));               // Action
         expBody.appendChild(strayTr);
 
         // Total row – same style
@@ -527,12 +532,14 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(el('td', {}, ['']));
-        totalTr.appendChild(el('td', {}, ['']));
         totalTr.appendChild(
-            el('td', { class: 'exp-summary-label' }, ['Total:'])   // Finished (label)
+            el('td', { class: 'exp-summary-label' }, ['Total:']) // End (label)
         );
         totalTr.appendChild(
-            el('td', {}, [String(entryStats.totalTotal)])          // Entries
+            el('td', {}, [String(entryStats.totalFinished)])     // Finished total
+        );
+        totalTr.appendChild(
+            el('td', {}, [String(entryStats.totalTotal)])        // Entries total
         );
         totalTr.appendChild(el('td', {}, ['']));
         expBody.appendChild(totalTr);
@@ -614,7 +621,6 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
 
                 let expLabel = '';
                 if (!expList.length) {
-                    // ownerless session (no experiment covers its start time)
                     expLabel = '(Stray)';
                 } else {
                     expLabel = expList.join(', ');
@@ -653,10 +659,10 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
             sessSec.appendChild(table(sessHeaders, sessRows));
             content.appendChild(sessSec);
 
-            // Raw (display) + pivot-ready CSV
+            // Raw Data
             const rawSec = el('section');
             const rawHeaderRow = el('div', { class: 'row' });
-            rawHeaderRow.appendChild(el('h2', {}, ['Raw Data']));   // title simplified
+            rawHeaderRow.appendChild(el('h2', {}, ['Raw Data']));
 
             const rawDisplayHeaders = [
                 'ts',
@@ -723,8 +729,20 @@ const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
         draw(state.tab || 'all');
     }
 
-    setInterval(() => render(), 3000);
-    if (bc) bc.onmessage = () => render();
+    // auto-refresh: skip while typing in experiment name box
+    setInterval(() => {
+        const active = document.activeElement;
+        if (active && active.id === 'exp-name-input') return;
+        render();
+    }, 3000);
+
+    if (bc) {
+        bc.onmessage = () => {
+            const active = document.activeElement;
+            if (active && active.id === 'exp-name-input') return;
+            render();
+        };
+    }
 
     render();
 })();

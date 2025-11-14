@@ -82,22 +82,89 @@ let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? '
             const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
 
             // ---- Supabase write (skip if not configured)
-            async function postEventToDB(evt) {
+            // ---- Supabase write (skip if not configured)
+
+            // All unsynced DB rows are kept here until we get a 2xx from Supabase.
+            const UPLOAD_KEY = 'upload_queue_v2';
+
+            function loadQueue() {
+                const raw = localStorage.getItem(UPLOAD_KEY);
+                return raw ? JSON.parse(raw) : [];
+            }
+
+            function saveQueue(q) {
+                localStorage.setItem(UPLOAD_KEY, JSON.stringify(q));
+            }
+
+            // Helper: turn a client event into a DB row
+            function eventToRow(evt) {
+                return {
+                    ts: evt.ts,
+                    session_id: evt.session_id ?? null,
+                    name: evt.name,
+                    channel: evt.channel ?? null,
+                    prolific_id: evt.prolific_id ?? null,
+                    case_index: evt.case_index ?? null,
+                    within_case_index: evt.within_case_index ?? null,
+                    route_code: evt.route_code ?? null,
+                    transcript_type: evt.transcript_type ?? null,
+                    letters: (evt.letters_shown_order || []).join(' '),
+                    slider_value: evt.slider_value ?? null,
+                    transcript_time_ms: evt.transcript_time_ms ?? null,
+                    payload: evt
+                };
+            }
+
+            // Try to push everything in the local queue to Supabase.
+            async function flushUploadQueue() {
                 if (!SUPABASE_URL || !SUPABASE_ANON || SUPABASE_URL.indexOf('YOUR-PROJECT') !== -1) return;
-                const row = { ts: evt.ts, session_id: evt.session_id, name: evt.name, channel: evt.channel ?? null, prolific_id: evt.prolific_id ?? null, case_index: evt.case_index ?? null, within_case_index: evt.within_case_index ?? null, route_code: evt.route_code ?? null, transcript_type: evt.transcript_type ?? null, letters: Array.isArray(evt.letters_shown_order) ? evt.letters_shown_order : null, slider_value: evt.slider_value ?? null, transcript_time_ms: evt.transcript_time_ms ?? null, payload: evt };
+
+                const q = loadQueue();
+                if (!q.length) return;
+
                 try {
-                    await fetch(`${SUPABASE_URL}/rest/v1/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Prefer': 'return=minimal' }, body: JSON.stringify([row]), keepalive: true });
+                    const resp = await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': SUPABASE_ANON,
+                            'Authorization': `Bearer ${SUPABASE_ANON}`,
+                            'Prefer': 'return=minimal'
+                        },
+                        body: JSON.stringify(q.map(item => item.row)),
+                        keepalive: true
+                    });
+
+                    if (!resp.ok) {
+                        console.warn('Supabase upload failed', resp.status);
+                        // Keep queue for retry.
+                        return;
+                    }
+
+                    // Success: everything in q is now in DB.
+                    localStorage.removeItem(UPLOAD_KEY);
                 } catch (err) {
-                    const q = JSON.parse(localStorage.getItem('upload_queue') || '[]'); q.push(row); localStorage.setItem('upload_queue', JSON.stringify(q));
+                    console.warn('Supabase upload network error', err);
+                    // Keep queue for retry.
                 }
             }
-            window.addEventListener('online', async () => {
-                const q = JSON.parse(localStorage.getItem('upload_queue') || '[]'); if (!q.length) return;
-                try {
-                    await fetch(`${SUPABASE_URL}/rest/v1/events`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Prefer': 'return=minimal' }, body: JSON.stringify(q) });
-                    localStorage.removeItem('upload_queue');
-                } catch (_) { }
-            });
+
+            // Main entry point for each event: store locally, then try to sync.
+            async function postEventToDB(evt) {
+                if (!SUPABASE_URL || !SUPABASE_ANON || SUPABASE_URL.indexOf('YOUR-PROJECT') !== -1) return;
+
+                const row = eventToRow(evt);
+                const q = loadQueue();
+                q.push({ row });
+                saveQueue(q);
+
+                // Best-effort immediate sync; if it fails, queue stays and will be retried.
+                await flushUploadQueue();
+            }
+
+            // When we regain connectivity, try again.
+            window.addEventListener('online', flushUploadQueue);
+
 
             // Unified event sink: local mirror + Supabase
             function stream(e) {

@@ -11,44 +11,44 @@
     <div class="mask"></div>
 
     <script>
-        // ==== REPLACE with your real Supabase project values ====
+        // ======= CONFIG: PUT YOUR REAL VALUES HERE =======
         const SUPABASE_URL = 'https://mmpjvhlxqebznermjznl.supabase.co';
-        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
-        // =======================================================
+        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkMY'; // replace with anon key
+        // =================================================
 
         (function () {
-
             const app = document.getElementById('app');
+
             const state = {
                 casesCount: 8,
                 maskMsMin: 900,
                 maskMsMax: 1500,
                 caseSliderDefault: 50,
-                introLines: ['Initializing experimental interface...', 'Loading session environment...', 'Ready.']
+                introLines: [
+                    'Initializing experimental interface...',
+                    'Loading session environment...',
+                    'Ready.'
+                ]
             };
 
-            // ---- Prolific channel + PID parsing (robust)
+            // ---------- URL params: Prolific / channel ----------
             const qp = new URLSearchParams(location.search);
 
-            // Accept multiple parameter names (real Prolific uses PROLIFIC_PID)
             const rawPid =
-              qp.get('PROLIFIC_PID') ||
-              qp.get('prolific_pid') ||
-              qp.get('PID') ||
-              qp.get('pid') ||
-              null;
+                qp.get('PROLIFIC_PID') ||
+                qp.get('prolific_pid') ||
+                qp.get('PID') ||
+                qp.get('pid') ||
+                null;
 
-            // Ignore Prolific preview placeholders like {{PROLIFIC_PID}}
             const isTemplate = typeof rawPid === 'string' && /\{\{.*\}\}/.test(rawPid);
             let prolific_id = (!rawPid || isTemplate) ? null : rawPid;
 
-            // Channel rules:
-            // 1) If caller specifies ?channel=Prolific exactly → use it
-            // 2) Else, if a valid PID exists → treat as Prolific
-            // 3) Else → Others
-            let channel = (qp.get('channel') === 'Prolific') ? 'Prolific' : (prolific_id ? 'Prolific' : 'Others');
+            let channel = (qp.get('channel') === 'Prolific')
+                ? 'Prolific'
+                : (prolific_id ? 'Prolific' : 'Others');
 
-            // ---- Small DOM helpers
+            // ---------- small DOM helpers ----------
             function el(t, a, c) {
                 const n = document.createElement(t); a = a || {};
                 for (const k in a) {
@@ -56,9 +56,12 @@
                     else if (k === 'html') n.innerHTML = a[k];
                     else n.setAttribute(k, a[k]);
                 }
-                (c || []).forEach(x => n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x));
+                (c || []).forEach(x =>
+                    n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x)
+                );
                 return n;
             }
+
             function fadeLines(container, lines, onDone) {
                 container.innerHTML = '';
                 const w = document.createElement('div');
@@ -74,6 +77,7 @@
                     setTimeout(step, 800);
                 })();
             }
+
             function consentModal(ok, deny) {
                 app.innerHTML = '';
                 const box = el('div', { class: 'card' }, [
@@ -90,12 +94,14 @@
                 box.querySelector('#acc').onclick = ok;
                 box.querySelector('#deny').onclick = deny;
             }
+
             function mask(msg) {
                 const m = document.querySelector('.mask');
                 m.textContent = msg || 'Loading…';
                 m.classList.add('show');
                 return () => m.classList.remove('show');
             }
+
             function sliderRow(val, onCommit) {
                 const out = el('span', { class: 'value' }, [String(val) + '%']);
                 const s = el('input', { type: 'range', min: '0', max: '100', value: String(val), step: '1' });
@@ -109,14 +115,14 @@
                     btn
                 ]);
             }
+
             function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
             function load(k, d) { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }
 
-            // Same-device preview channel
+            // ---------- BroadcastChannel (for dev preview on same machine) ----------
             const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
 
-            // ---- Supabase write (skip if not configured)
-            // All unsynced DB rows are kept here until we get a 2xx from Supabase.
+            // ---------- Supabase upload queue (robust) ----------
             const UPLOAD_KEY = 'upload_queue_v2';
 
             function loadQueue() {
@@ -128,7 +134,6 @@
                 localStorage.setItem(UPLOAD_KEY, JSON.stringify(q));
             }
 
-            // Helper: turn a client event into a DB row
             function eventToRow(evt) {
                 return {
                     ts: evt.ts,
@@ -140,16 +145,16 @@
                     within_case_index: evt.within_case_index ?? null,
                     route_code: evt.route_code ?? null,
                     transcript_type: evt.transcript_type ?? null,
-                    letters: (evt.letters_shown_order || []).join(' '),
+                    letters: evt.letters_shown_order || [],
                     slider_value: evt.slider_value ?? null,
                     transcript_time_ms: evt.transcript_time_ms ?? null,
                     payload: evt
                 };
             }
 
-            // Try to push everything in the local queue to Supabase.
             async function flushUploadQueue() {
-                if (!SUPABASE_URL || !SUPABASE_ANON || SUPABASE_URL.indexOf('YOUR-PROJECT') !== -1) return;
+                if (!SUPABASE_URL || !SUPABASE_ANON ||
+                    SUPABASE_URL.indexOf('supabase.co') === -1) return;
 
                 const q = loadQueue();
                 if (!q.length) return;
@@ -169,41 +174,42 @@
 
                     if (!resp.ok) {
                         console.warn('Supabase upload failed', resp.status);
-                        // Keep queue for retry.
-                        return;
+                        return; // keep queue for retry
                     }
 
-                    // Success: everything in q is now in DB.
                     localStorage.removeItem(UPLOAD_KEY);
                 } catch (err) {
                     console.warn('Supabase upload network error', err);
-                    // Keep queue for retry.
                 }
             }
 
-            // Main entry point for each event: store locally, then try to sync.
             async function postEventToDB(evt) {
-                if (!SUPABASE_URL || !SUPABASE_ANON || SUPABASE_URL.indexOf('YOUR-PROJECT') !== -1) return;
+                if (!SUPABASE_URL || !SUPABASE_ANON ||
+                    SUPABASE_URL.indexOf('supabase.co') === -1) return;
 
                 const row = eventToRow(evt);
                 const q = loadQueue();
                 q.push({ row });
                 saveQueue(q);
-
-                // Best-effort immediate sync; if it fails, queue stays and will be retried.
                 await flushUploadQueue();
             }
 
-            // When we regain connectivity, try again.
             window.addEventListener('online', flushUploadQueue);
-
-            // Also periodically retry, in case there was a transient server error.
             setInterval(flushUploadQueue, 10000);
 
-            // Unified event sink: local mirror + Supabase
+            // ---------- Session ID ----------
+            const session = {
+                session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5),
+                started_ts: Date.now(),
+                upload_consent: null,
+                finished: false,
+                channel,
+                prolific_id
+            };
+
+            // ---------- unified logging ----------
             function stream(e) {
-                // Ensure every event has session_id & ts before storing / uploading
-                if (!e.session_id && session && session.session_id) {
+                if (!e.session_id) {
                     e.session_id = session.session_id;
                 }
                 if (!e.ts) {
@@ -215,43 +221,67 @@
                 save('exp_events', arr);
 
                 try { bc && bc.postMessage({ type: 'event', ...e }); } catch (_) { }
+
                 postEventToDB(e);
             }
 
-            // --- Experiment content & randomization
+            // ---------- experiment randomization ----------
             function rand(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
-            function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[a[i], a[j]] = [a[j], a[i]]; } return a; }
+            function shuffle(a) {
+                a = a.slice();
+                for (let i = a.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [a[i], a[j]] = [a[j], a[i]];
+                }
+                return a;
+            }
+
             function uniquePerms(ms) {
-                const map = {}; ms.forEach(x => map[x] = (map[x] || 0) + 1); const keys = Object.keys(map), res = [];
-                function bt(p) { if (p.length === ms.length) { res.push(p.slice()); return; } for (const k of keys) { if (map[k] > 0) { map[k]--; p.push(k); bt(p); p.pop(); map[k]++; } } }
+                const map = {};
+                ms.forEach(x => map[x] = (map[x] || 0) + 1);
+                const keys = Object.keys(map), res = [];
+
+                function bt(p) {
+                    if (p.length === ms.length) {
+                        res.push(p.slice());
+                        return;
+                    }
+                    for (const k of keys) {
+                        if (map[k] > 0) {
+                            map[k]--;
+                            p.push(k);
+                            bt(p);
+                            p.pop();
+                            map[k]++;
+                        }
+                    }
+                }
                 bt([]);
-                const seen = new Set(), out = []; for (const p of res) { const s = p.join(''); if (!seen.has(s)) { seen.add(s); out.push(p); } }
+                const seen = new Set(), out = [];
+                for (const p of res) {
+                    const s = p.join('');
+                    if (!seen.has(s)) {
+                        seen.add(s);
+                        out.push(p);
+                    }
+                }
                 return out;
             }
+
             const ALPHA_ROWS = uniquePerms(['A', 'A', 'A', 'B', 'B']);
             const BETA_ROWS = uniquePerms(['A', 'A', 'B', 'B', 'B']);
+
             function routes() {
                 const t = ['A', 'B'], r = [];
                 for (const i of t) for (const j of t) for (const k of t) r.push(i + j + k);
                 return r;
             }
 
-            // --- Session lifecycle
-            const session = {
-                session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5),
-                started_ts: Date.now(),
-                upload_consent: null,
-                finished: false,
-                channel,
-                prolific_id
-            };
-
-            stream({ name: 'session_meta', session_id: session.session_id, ts: Date.now(), channel, prolific_id });
-
             const CASES = shuffle(routes()).slice(0, state.casesCount);
             let caseIdx = 0, transIdx = 0, caseStart = 0, transStart = 0, routeCode = null;
             let currentSlider = state.caseSliderDefault;
 
+            // ---------- flow ----------
             function startIntro() {
                 const ctr = document.createElement('div');
                 ctr.className = 'center';
@@ -263,54 +293,62 @@
                     ctr.appendChild(b);
                 });
             }
+
             function showConsent() {
                 consentModal(
                     () => {
                         session.upload_consent = true;
-                        stream({ name: 'consent_accept', session_id: session.session_id, ts: Date.now() });
+                        stream({
+                            name: 'consent_accept',
+                            session_id: session.session_id,
+                            ts: Date.now()
+                        });
                         startExperiment();
                     },
                     () => {
                         session.upload_consent = false;
-                        stream({ name: 'consent_decline', session_id: session.session_id, ts: Date.now() });
+                        stream({
+                            name: 'consent_decline',
+                            session_id: session.session_id,
+                            ts: Date.now()
+                        });
                         app.innerHTML = '<div class="center"><h2>Thank you for your time.</h2></div>';
                     }
                 );
             }
+
             function startExperiment() {
-                const un = mask('Preparing Case 1…');
-                setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax));
-            }
-            function nextCase() {
-                if (caseIdx >= state.casesCount) { finish(); return; }
-                routeCode = CASES[caseIdx];
-                transIdx = 0;
-                caseStart = Date.now();
-                currentSlider = state.caseSliderDefault;
                 stream({
-                    name: 'case_start',
+                    name: 'session_meta',
                     session_id: session.session_id,
-                    ts: caseStart,
-                    case_index: caseIdx + 1,
-                    route_code: routeCode
+                    ts: session.started_ts,
+                    channel,
+                    prolific_id
                 });
-                nextTranscript();
+
+                const un = mask('Preparing Case 1…');
+                setTimeout(() => { un(); nextCase(); },
+                    rand(state.maskMsMin, state.maskMsMax));
             }
+
             function showTranscript(type, onCommit) {
                 app.innerHTML = '';
                 const row = (type === 'A')
                     ? ALPHA_ROWS[Math.floor(Math.random() * ALPHA_ROWS.length)]
                     : BETA_ROWS[Math.floor(Math.random() * BETA_ROWS.length)];
+
                 const frame = el('div', { class: 'card focus' });
                 frame.appendChild(el('div', { class: 'subhead' }, ['Semester ', ['X', 'Y', 'Z'][transIdx]]));
                 frame.appendChild(el('div', { class: 'grades' }, [row.join('   ')]));
                 frame.appendChild(el('hr'));
                 frame.appendChild(sliderRow(currentSlider, v => onCommit({ v, row })));
+
                 app.appendChild(el('div', { class: 'center' }, [
                     el('h2', {}, ['Case ' + (caseIdx + 1) + ' — Transcript ' + (transIdx + 1) + '/3']),
                     frame
                 ]));
             }
+
             function nextTranscript() {
                 if (transIdx >= 3) {
                     const caseTime = Date.now() - caseStart;
@@ -324,9 +362,11 @@
                     });
                     caseIdx++;
                     const un = mask('Loading next case…');
-                    setTimeout(() => { un(); nextCase(); }, rand(state.maskMsMin, state.maskMsMax));
+                    setTimeout(() => { un(); nextCase(); },
+                        rand(state.maskMsMin, state.maskMsMax));
                     return;
                 }
+
                 const type = routeCode[transIdx];
                 transStart = Date.now();
                 showTranscript(type, ({ v, row }) => {
@@ -348,6 +388,28 @@
                     nextTranscript();
                 });
             }
+
+            function nextCase() {
+                if (caseIdx >= state.casesCount) {
+                    finish();
+                    return;
+                }
+                routeCode = CASES[caseIdx];
+                transIdx = 0;
+                caseStart = Date.now();
+                currentSlider = state.caseSliderDefault;
+
+                stream({
+                    name: 'case_start',
+                    session_id: session.session_id,
+                    ts: caseStart,
+                    case_index: caseIdx + 1,
+                    route_code: routeCode
+                });
+
+                nextTranscript();
+            }
+
             function finish() {
                 session.finished = true;
                 stream({
@@ -356,33 +418,12 @@
                     ts: Date.now(),
                     finished: true
                 });
-                app.innerHTML = '<div class="center"><h2>All cases complete.</h2><div class="muted">You may now close this window.</div></div>';
+                app.innerHTML =
+                    '<div class="center"><h2>All cases complete.</h2><div class="muted">You may now close this window.</div></div>';
             }
 
             startIntro();
-
         })();
     </script>
-
-    <!-- 🧪 Debug overlay: shows channel & PID -->
-    <div id="debug"
-         style="position:fixed;right:12px;bottom:12px;padding:8px 10px;
-            border-radius:8px;background:#111;color:#0ff;
-            font:12px/1.2 ui-monospace;opacity:.85;z-index:9999">
-    </div>
-
-    <script>
-        // Wait until session info is available
-        window.addEventListener('load', () => {
-            const d = document.getElementById('debug');
-            // It will display “channel=Prolific | pid=TEST123” etc.
-            try {
-                d.textContent = `channel=${window.channel || 'N/A'} | pid=${window.prolific_id || 'null'}`;
-            } catch (e) {
-                d.textContent = 'debug unavailable';
-            }
-        });
-    </script>
-
 </body>
 </html>

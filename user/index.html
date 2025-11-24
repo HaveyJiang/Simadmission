@@ -11,13 +11,14 @@
     <div class="mask"></div>
 
     <script>
-        // ======= CONFIG: PUT YOUR REAL VALUES HERE =======
+        /* ========= CONFIG: UPDATE THESE TWO ========= */
         const SUPABASE_URL = 'https://mmpjvhlxqebznermjznl.supabase.co';
-        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkMY'; // replace with anon key
-        // =================================================
+        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
+        /* ============================================ */
 
         (function () {
             const app = document.getElementById('app');
+            const maskEl = document.querySelector('.mask');
 
             const state = {
                 casesCount: 8,
@@ -31,35 +32,46 @@
                 ]
             };
 
-            // ---------- URL params: Prolific / channel ----------
-            const qp = new URLSearchParams(location.search);
+            /* ---------- Basic helpers ---------- */
 
-            const rawPid =
-                qp.get('PROLIFIC_PID') ||
-                qp.get('prolific_pid') ||
-                qp.get('PID') ||
-                qp.get('pid') ||
-                null;
-
-            const isTemplate = typeof rawPid === 'string' && /\{\{.*\}\}/.test(rawPid);
-            let prolific_id = (!rawPid || isTemplate) ? null : rawPid;
-
-            let channel = (qp.get('channel') === 'Prolific')
-                ? 'Prolific'
-                : (prolific_id ? 'Prolific' : 'Others');
-
-            // ---------- small DOM helpers ----------
-            function el(t, a, c) {
-                const n = document.createElement(t); a = a || {};
-                for (const k in a) {
-                    if (k === 'class') n.className = a[k];
-                    else if (k === 'html') n.innerHTML = a[k];
-                    else n.setAttribute(k, a[k]);
+            function el(t, attrs, children) {
+                const n = document.createElement(t);
+                attrs = attrs || {};
+                for (const k in attrs) {
+                    if (k === 'class') n.className = attrs[k];
+                    else if (k === 'html') n.innerHTML = attrs[k];
+                    else n.setAttribute(k, attrs[k]);
                 }
-                (c || []).forEach(x =>
+                (children || []).forEach(x =>
                     n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x)
                 );
                 return n;
+            }
+
+            function save(k, v) {
+                localStorage.setItem(k, JSON.stringify(v));
+            }
+            function load(k, d) {
+                const v = localStorage.getItem(k);
+                return v ? JSON.parse(v) : d;
+            }
+
+            function rand(a, b) {
+                return Math.floor(Math.random() * (b - a + 1)) + a;
+            }
+            function shuffle(a) {
+                a = a.slice();
+                for (let i = a.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [a[i], a[j]] = [a[j], a[i]];
+                }
+                return a;
+            }
+
+            function mask(msg) {
+                maskEl.textContent = msg || 'Loading…';
+                maskEl.classList.add('show');
+                return () => maskEl.classList.remove('show');
             }
 
             function fadeLines(container, lines, onDone) {
@@ -69,37 +81,16 @@
                 container.appendChild(w);
                 let i = 0;
                 (function step() {
-                    if (i >= lines.length) { onDone && onDone(); return; }
+                    if (i >= lines.length) {
+                        onDone && onDone();
+                        return;
+                    }
                     const d = el('div', { class: 'fade' }, [lines[i]]);
                     w.appendChild(d);
                     setTimeout(() => d.classList.add('show'), 50);
                     i++;
                     setTimeout(step, 800);
                 })();
-            }
-
-            function consentModal(ok, deny) {
-                app.innerHTML = '';
-                const box = el('div', { class: 'card' }, [
-                    el('h2', {}, ['Consent to Participate']),
-                    el('p', {}, ['Your responses will be uploaded for research use in real time.']),
-                    el('p', {}, ['']),
-                    el('div', { class: 'btn-row' }, [
-                        el('button', { id: 'acc', class: 'btn primary' }, ['Accept']),
-                        el('button', { id: 'deny', class: 'btn' }, ['Decline'])
-                    ])
-                ]);
-                const ctr = el('div', { class: 'center' }, [box]);
-                app.appendChild(ctr);
-                box.querySelector('#acc').onclick = ok;
-                box.querySelector('#deny').onclick = deny;
-            }
-
-            function mask(msg) {
-                const m = document.querySelector('.mask');
-                m.textContent = msg || 'Loading…';
-                m.classList.add('show');
-                return () => m.classList.remove('show');
             }
 
             function sliderRow(val, onCommit) {
@@ -116,20 +107,41 @@
                 ]);
             }
 
-            function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
-            function load(k, d) { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }
+            /* ---------- Prolific / channel parsing ---------- */
 
-            // ---------- BroadcastChannel (for dev preview on same machine) ----------
-            const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
+            const qp = new URLSearchParams(location.search);
+            const rawPid =
+                qp.get('PROLIFIC_PID') ||
+                qp.get('prolific_pid') ||
+                qp.get('PID') ||
+                qp.get('pid') ||
+                null;
+            const isTemplate = typeof rawPid === 'string' && /\{\{.*\}\}/.test(rawPid);
+            let prolific_id = (!rawPid || isTemplate) ? null : rawPid;
 
-            // ---------- Supabase upload queue (robust) ----------
+            let channel = (qp.get('channel') === 'Prolific')
+                ? 'Prolific'
+                : (prolific_id ? 'Prolific' : 'Others');
+
+            /* ---------- Session object ---------- */
+
+            const session = {
+                session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5),
+                started_ts: Date.now(),
+                upload_consent: null,
+                finished: false,
+                channel,
+                prolific_id
+            };
+
+            /* ---------- Supabase upload queue (robust) ---------- */
+
             const UPLOAD_KEY = 'upload_queue_v2';
 
             function loadQueue() {
                 const raw = localStorage.getItem(UPLOAD_KEY);
                 return raw ? JSON.parse(raw) : [];
             }
-
             function saveQueue(q) {
                 localStorage.setItem(UPLOAD_KEY, JSON.stringify(q));
             }
@@ -197,17 +209,8 @@
             window.addEventListener('online', flushUploadQueue);
             setInterval(flushUploadQueue, 10000);
 
-            // ---------- Session ID ----------
-            const session = {
-                session_id: 'S' + Date.now() + '-' + Math.floor(Math.random() * 1e5),
-                started_ts: Date.now(),
-                upload_consent: null,
-                finished: false,
-                channel,
-                prolific_id
-            };
+            /* ---------- Unified logging ---------- */
 
-            // ---------- unified logging ----------
             function stream(e) {
                 if (!e.session_id) {
                     e.session_id = session.session_id;
@@ -216,25 +219,15 @@
                     e.ts = Date.now();
                 }
 
+                // Local mirror for debugging if you ever need it
                 const arr = load('exp_events', []);
                 arr.push({ type: 'event', ...e });
                 save('exp_events', arr);
 
-                try { bc && bc.postMessage({ type: 'event', ...e }); } catch (_) { }
-
                 postEventToDB(e);
             }
 
-            // ---------- experiment randomization ----------
-            function rand(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
-            function shuffle(a) {
-                a = a.slice();
-                for (let i = a.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [a[i], a[j]] = [a[j], a[i]];
-                }
-                return a;
-            }
+            /* ---------- Transcript randomization ---------- */
 
             function uniquePerms(ms) {
                 const map = {};
@@ -281,7 +274,8 @@
             let caseIdx = 0, transIdx = 0, caseStart = 0, transStart = 0, routeCode = null;
             let currentSlider = state.caseSliderDefault;
 
-            // ---------- flow ----------
+            /* ---------- Flow: intro → consent → experiment ---------- */
+
             function startIntro() {
                 const ctr = document.createElement('div');
                 ctr.className = 'center';
@@ -295,29 +289,41 @@
             }
 
             function showConsent() {
-                consentModal(
-                    () => {
-                        session.upload_consent = true;
-                        stream({
-                            name: 'consent_accept',
-                            session_id: session.session_id,
-                            ts: Date.now()
-                        });
-                        startExperiment();
-                    },
-                    () => {
-                        session.upload_consent = false;
-                        stream({
-                            name: 'consent_decline',
-                            session_id: session.session_id,
-                            ts: Date.now()
-                        });
-                        app.innerHTML = '<div class="center"><h2>Thank you for your time.</h2></div>';
-                    }
-                );
+                app.innerHTML = '';
+                const box = el('div', { class: 'card' }, [
+                    el('h2', {}, ['Consent to Participate']),
+                    el('p', {}, ['Your responses will be uploaded for research use in real time.']),
+                    el('p', {}, ['You can stop at any time.']),
+                    el('div', { class: 'btn-row' }, [
+                        el('button', { id: 'acc', class: 'btn primary' }, ['Accept']),
+                        el('button', { id: 'deny', class: 'btn' }, ['Decline'])
+                    ])
+                ]);
+                const ctr = el('div', { class: 'center' }, [box]);
+                app.appendChild(ctr);
+
+                box.querySelector('#acc').onclick = () => {
+                    session.upload_consent = true;
+                    stream({
+                        name: 'consent_accept',
+                        session_id: session.session_id,
+                        ts: Date.now()
+                    });
+                    startExperiment();
+                };
+                box.querySelector('#deny').onclick = () => {
+                    session.upload_consent = false;
+                    stream({
+                        name: 'consent_decline',
+                        session_id: session.session_id,
+                        ts: Date.now()
+                    });
+                    app.innerHTML = '<div class="center"><h2>Thank you for your time.</h2></div>';
+                };
             }
 
             function startExperiment() {
+                // log basic session meta
                 stream({
                     name: 'session_meta',
                     session_id: session.session_id,
@@ -422,6 +428,7 @@
                     '<div class="center"><h2>All cases complete.</h2><div class="muted">You may now close this window.</div></div>';
             }
 
+            // Kick off
             startIntro();
         })();
     </script>

@@ -34,10 +34,68 @@
             white-space: nowrap;
         }
 
-        /* Label cell in Strays / Total rows (End column) */
         .exp-summary-label {
             text-align: right;
             font-weight: bold;
+        }
+
+        .tabbar {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .tab {
+            padding: 0.4rem 0.8rem;
+            margin-right: 0.4rem;
+            border: 1px solid #ccc;
+            background: #f7f7f7;
+            cursor: pointer;
+        }
+
+            .tab.active {
+                background: #e0e0e0;
+                font-weight: bold;
+            }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .btn {
+            padding: 0.25rem 0.6rem;
+            border: 1px solid #999;
+            background: #f5f5f5;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+            .btn.primary {
+                background: #007bff;
+                border-color: #007bff;
+                color: #fff;
+            }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.25rem 0.4rem;
+        }
+
+        th {
+            background: #f2f2f2;
+        }
+
+        section {
+            margin-top: 1rem;
         }
     </style>
 </head>
@@ -45,771 +103,821 @@
     <div id="app"></div>
 
     <script>
-const SUPABASE_URL  = 'https://mmpjvhlxqebznermjznl.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
+        /* ----------------- CONFIG ----------------- */
 
-const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
+        const SUPABASE_URL = 'https://mmpjvhlxqebznermjznl.supabase.co';
+        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tcGp2aGx4cWViem5lcm1qem5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5OTMsImV4cCI6MjA3ODQ5MTk5M30.GFmscoJGdD4zwLj4Fn-0hpMFXkdSIYUUo65MdLSfIkM';
 
-// ----- completeness checker for sessions -----
-const EXPECTED_CASES = [1, 2, 3, 4, 5, 6, 7, 8];
+        // Your backend API that reads from Supabase with the service-role key
+        const VERCEL_EVENTS_URL = 'https://simadmission.vercel.app/api/events';
 
-(function () {
-    const app = document.getElementById('app');
-    const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
+        // Completeness checker: which case_index values you *expect*
+        const EXPECTED_CASES = [1, 2, 3, 4, 5, 6, 7, 8];
 
-    const state = {
-        tab:   localStorage.getItem('dev_tab')   || 'all',
-        expId: localStorage.getItem('dev_expId') || null,
-        newExpName: ''   // text currently in "Experiment name" box
-    };
+        (function () {
+            const app = document.getElementById('app');
+            const bc = ('BroadcastChannel' in self) ? new BroadcastChannel('exp-stream') : null;
 
-    // ---------- local storage helpers ----------
-
-    function load(k, d) {
-        const v = localStorage.getItem(k);
-        return v ? JSON.parse(v) : d;
-    }
-
-    function save(k, v) {
-        localStorage.setItem(k, JSON.stringify(v));
-    }
-
-    // ---------- experiments ----------
-
-    function getExperiments() {
-        return load('experiments', []);
-    }
-
-    function setExperiments(arr) {
-        save('experiments', arr);
-    }
-
-    function startExperiment(name) {
-        name = (name || '').trim();
-
-        // "(Stray)" is reserved for system use
-        if (name === '(Stray)') {
-            alert('" (Stray) " is a reserved label and cannot be used as an experiment name.');
-            return;
-        }
-
-        const exps = getExperiments();
-        const e = {
-            experiment_id: 'E' + Math.floor(Math.random() * 1e6) + '-' + Date.now(),
-            name:     name || ('Exp ' + (exps.length + 1)),
-            start_ts: Date.now(),
-            end_ts:   null,
-            status:   'active'
-        };
-        exps.push(e);
-        setExperiments(exps);
-        state.newExpName = '';
-        render();
-    }
-
-    function endExperiment(id) {
-        setExperiments(
-            getExperiments().map(e =>
-                e.experiment_id === id
-                    ? { ...e, end_ts: Date.now(), status: 'ended' }
-                    : e
-            )
-        );
-        render();
-    }
-
-    // ---------- fetching events ----------
-
-    async function fetchEventsFromDB() {
-        // Only use the backend API; it reads Supabase with service role key.
-        try {
-            const r = await fetch(VERCEL_EVENTS_URL, { cache: 'no-store' });
-            if (!r.ok) {
-                console.warn('Events fetch failed', r.status);
-                return [];
-            }
-            const rows = await r.json();
-            // Each row is either { payload: {...} } or already an event object
-            return Array.isArray(rows) ? rows.map(x => x.payload ?? x) : [];
-        } catch (e) {
-            console.error('Events fetch error', e);
-            return [];
-        }
-    }
-
-
-
-    async function getEvents() {
-        const fromDb = await fetchEventsFromDB();
-        if (fromDb && fromDb.length) return fromDb;
-        // fallback to local mirror
-        return load('exp_events', []);
-    }
-
-    // ---------- experiment mapping helpers ----------
-
-    function experimentsForSession(ts) {
-        return getExperiments().filter(
-            e => e.start_ts <= ts && (e.end_ts === null || ts <= e.end_ts)
-        );
-    }
-
-    function isPendingSession(ts) {
-        const exps = getExperiments();
-        return !exps.some(
-            e => e.start_ts <= ts && (e.end_ts === null || ts <= e.end_ts)
-        );
-    }
-
-    // ---------- sessions reconstruction (with inference) ----------
-
-    function sessionsFromEvents(evs) {
-        const by = {};
-
-        for (const ev of evs) {
-            const sid = ev.session_id;
-            if (!sid) continue;
-
-            if (!by[sid]) {
-                by[sid] = {
-                    session_id:    sid,
-                    started_ts:    null,
-                    finished:      false,
-                    upload_consent: null,
-                    routes:        new Set(),
-                    channel:       null,
-                    prolific_id:   null
-                };
-            }
-
-            const s = by[sid];
-
-            // Meta
-            if (ev.name === 'session_meta') {
-                s.channel     = ev.channel     || s.channel;
-                s.prolific_id = ev.prolific_id || s.prolific_id;
-            }
-
-            // Explicit consent
-            if (ev.name === 'consent_accept') {
-                s.upload_consent = true;
-                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
-            }
-            if (ev.name === 'consent_decline') {
-                s.upload_consent = false;
-                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
-            }
-
-            // Case starts – definitive routes
-            if (ev.name === 'case_start') {
-                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
-                if (ev.route_code) s.routes.add(ev.route_code);
-            }
-
-            // Transcript commits – infer consent + routes if missing
-            if (ev.name === 'transcript_commit') {
-                if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
-                if (ev.route_code) s.routes.add(ev.route_code);
-
-                if (s.upload_consent === null) {
-                    // If they are producing transcripts, treat as consented
-                    s.upload_consent = true;
-                }
-            }
-
-            if (ev.name === 'session_finish') {
-                s.finished = true;
-            }
-        }
-
-        return Object.values(by)
-            .map(s => ({
-                ...s,
-                routes: Array.from(s.routes).sort()
-            }))
-            .sort((a, b) => (a.started_ts || 0) - (b.started_ts || 0));
-    }
-
-    // ---------- transcript rows helpers ----------
-
-    function rawRows(evs, filterFn) {
-        const rows = evs
-            .filter(e => e.name === 'transcript_commit')
-            .map(e => ({
-                ts:                 e.ts,
-                session_id:         e.session_id,
-                case_index:         e.case_index,
-                within_case_index:  e.within_case_index,
-                route_code:         e.route_code,
-                transcript_type:    e.transcript_type,
-                letters:            (e.letters_shown_order || []).join(' '),
-                slider_value:       e.slider_value,
-                transcript_time_ms: e.transcript_time_ms
-            }))
-            .sort((a, b) => a.ts - b.ts);
-
-        if (!filterFn) return rows;
-
-        const sess = sessionsFromEvents(evs)
-            .filter(filterFn)
-            .map(s => s.session_id);
-        const set = new Set(sess);
-        return rows.filter(r => set.has(r.session_id));
-    }
-
-    // flat rows for pivot-ready CSV
-    function flatRows(evs, filterFn) {
-        const sessions = sessionsFromEvents(evs);
-        const bySid = {};
-        sessions.forEach(s => { bySid[s.session_id] = s; });
-
-        const base = rawRows(evs, filterFn);
-        return base.map(r => {
-            const s = bySid[r.session_id] || {};
-            const startedTs    = s.started_ts || null;
-            const startedLocal = startedTs ? new Date(startedTs).toLocaleString() : '';
-
-            return {
-                ts:                 r.ts,
-                ts_local:           r.ts ? new Date(r.ts).toLocaleString() : '',
-                session_id:         r.session_id,
-                case_index:         r.case_index,
-                within_case_index:  r.within_case_index,
-                route_code:         r.route_code,
-                transcript_type:    r.transcript_type,
-                letters:            r.letters,
-                slider_value:       r.slider_value,
-                transcript_time_ms: r.transcript_time_ms,
-                started_ts:         startedTs,
-                started_local:      startedLocal,
-                upload_consent:     s.upload_consent === null
-                    ? ''
-                    : (s.upload_consent ? 'true' : 'false'),
-                finished:           s.finished ? 'true' : 'false',
-                channel:            s.channel || '',
-                prolific_id:        s.prolific_id || '',
-                experiments:        startedTs
-                    ? experimentsForSession(startedTs).map(e => e.name).join(', ')
-                    : '',
-                session_routes:     (s.routes || []).join(', ')
+            const state = {
+                tab: localStorage.getItem('dev_tab') || 'all',
+                expId: localStorage.getItem('dev_expId') || null,
+                newExpName: ''
             };
-        });
-    }
 
-    function summaryPivot(evs, filterFn, includeTimes) {
-        const rows = rawRows(evs, filterFn);
-        const types = ['A', 'B'];
-        const codes = [];
-        for (const i of types) {
-            for (const j of types) {
-                for (const k of types) {
-                    codes.push(i + j + k);
+            /* ------------ local storage helpers ------------ */
+
+            function load(k, d) {
+                const v = localStorage.getItem(k);
+                return v ? JSON.parse(v) : d;
+            }
+
+            function save(k, v) {
+                localStorage.setItem(k, JSON.stringify(v));
+            }
+
+            /* ----------------- experiments ----------------- */
+
+            function getExperiments() {
+                return load('experiments', []);
+            }
+
+            function setExperiments(arr) {
+                save('experiments', arr);
+            }
+
+            function startExperiment(name) {
+                name = (name || '').trim();
+                if (name === '(Stray)') {
+                    alert('" (Stray) " is a reserved label and cannot be used as an experiment name.');
+                    return;
                 }
-            }
-        }
-        const cols = [];
-        const timeCols = [];
-        for (const c of codes) {
-            cols.push(c + '_1', c + '_2', c + '_3');
-            if (includeTimes) timeCols.push(c + '_1_t', c + '_2_t', c + '_3_t');
-        }
-        const by = {};
-        for (const r of rows) {
-            const k = r.session_id;
-            if (!by[k]) by[k] = { session_id: k };
-            const col = r.route_code + '_' + r.within_case_index;
-            by[k][col] = r.slider_value;
-            if (includeTimes) by[k][col + '_t'] = r.transcript_time_ms;
-        }
-        return { columns: ['session_id', ...cols, ...timeCols], data: Object.values(by) };
-    }
 
-    // ---------- completeness helper ----------
-
-    function caseCoverageForSession(evs, sessionId) {
-        const cases = new Set();
-        evs.forEach(ev => {
-            if (ev.name === 'transcript_commit' && ev.session_id === sessionId) {
-                cases.add(ev.case_index);
-            }
-        });
-        return Array.from(cases).sort((a, b) => a - b);
-    }
-
-    // ---------- generic DOM helpers / table / downloads ----------
-
-    function el(t, attrs, children) {
-        const n = document.createElement(t);
-        attrs = attrs || {};
-        for (const k in attrs) {
-            if (k === 'class')      n.className = attrs[k];
-            else if (k === 'html')  n.innerHTML = attrs[k];
-            else                    n.setAttribute(k, attrs[k]);
-        }
-        (children || []).forEach(x =>
-            n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x)
-        );
-        return n;
-    }
-
-    function table(headers, rows) {
-        const t = el('table');
-        const thead = el('thead');
-        const trh = el('tr');
-        headers.forEach(h => trh.appendChild(el('th', {}, [h])));
-        thead.appendChild(trh);
-        t.appendChild(thead);
-
-        const tb = el('tbody');
-        rows.forEach(r => {
-            const tr = el('tr');
-            headers.forEach(h => {
-                const td = el('td');
-                const v = r[h];
-                td.textContent = (v !== undefined && v !== null) ? String(v) : '';
-                tr.appendChild(td);
-            });
-            tb.appendChild(tr);
-        });
-        t.appendChild(tb);
-        return t;
-    }
-
-    function downloadJSON(filename, obj) {
-        const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 3000);
-    }
-
-    function rowsToCSV(headers, rows) {
-        const escapeValue = (v) => {
-            if (v === null || v === undefined) return '';
-            const s = String(v);
-            if (/[",\n]/.test(s)) {
-                return '"' + s.replace(/"/g, '""') + '"';
-            }
-            return s;
-        };
-
-        const lines = [];
-        lines.push(headers.join(','));
-        for (const row of rows) {
-            const line = headers.map(h => escapeValue(row[h])).join(',');
-            lines.push(line);
-        }
-        return lines.join('\r\n');
-    }
-
-    function downloadCSV(filename, headers, rows) {
-        const csv = rowsToCSV(headers, rows);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 3000);
-    }
-
-    // ---------- experiment counts (finished / total / strays / total) ----------
-
-    function experimentEntryCounts(evs) {
-        const exps = getExperiments();
-        const sessions = sessionsFromEvents(evs);
-
-        const counts = {}; // expId -> { finished, total }
-        exps.forEach(e => {
-            counts[e.experiment_id] = { finished: 0, total: 0 };
-        });
-
-        let strayFinished = 0;
-        let strayTotal    = 0;
-        let totalFinished = 0;
-        const totalTotal  = sessions.length;
-
-        sessions.forEach(s => {
-            const ts = s.started_ts || null;
-            const finished = !!s.finished;
-            if (finished) totalFinished++;
-
-            const owned = ts ? experimentsForSession(ts) : [];
-
-            if (!owned.length) {
-                strayTotal++;
-                if (finished) strayFinished++;
-            } else {
-                owned.forEach(e => {
-                    if (!counts[e.experiment_id]) {
-                        counts[e.experiment_id] = { finished: 0, total: 0 };
-                    }
-                    counts[e.experiment_id].total++;
-                    if (finished) counts[e.experiment_id].finished++;
-                });
-            }
-        });
-
-        return {
-            counts,        // { expId: { finished, total } }
-            strayFinished,
-            strayTotal,
-            totalFinished,
-            totalTotal
-        };
-    }
-
-    // ---------- main render ----------
-
-    async function render() {
-        const evs = await getEvents();
-        app.innerHTML = '';
-
-        // Header row
-        const headerRow = el('div', { class: 'row' });
-        const title = el('h1', {}, ['Developer Portal']);
-
-        const refreshBtn = el('button', { class: 'btn', id: 'refresh-btn' }, ['Refresh']);
-        refreshBtn.onclick = () => {
-            document.body.classList.add('refreshing');
-            render().finally(() => {
-                setTimeout(() => document.body.classList.remove('refreshing'), 150);
-            });
-        };
-
-        headerRow.appendChild(title);
-        headerRow.appendChild(refreshBtn);
-        app.appendChild(headerRow);
-
-        const updateBar = el('div', { class: 'row', id: 'update-bar' });
-        const updatedLabel = el(
-            'span',
-            { id: 'last-updated' },
-            ['Last updated: ' + new Date().toLocaleString()]
-        );
-        updateBar.appendChild(updatedLabel);
-        app.appendChild(updateBar);
-
-        // ===== Manage experiments =====
-
-        const manage = el('section');
-
-        const controlRow = el('div', { class: 'row' });
-        const inp = el('input', {
-            id: 'exp-name-input',
-            placeholder: 'Experiment name (optional)'
-        });
-        inp.value = state.newExpName || '';
-        inp.oninput = () => {
-            state.newExpName = inp.value;
-        };
-
-        const startBtn = el('button', { class: 'btn primary' }, ['Start Experiment']);
-        startBtn.onclick = () => startExperiment(inp.value.trim());
-
-        const exportBtn = el('button', { class: 'btn' }, ['Download raw events (JSON)']);
-        exportBtn.onclick = () => downloadJSON('events.json', evs);
-
-        controlRow.appendChild(inp);
-        controlRow.appendChild(startBtn);
-        controlRow.appendChild(exportBtn);
-        manage.appendChild(controlRow);
-
-        // Experiments table
-        const exps = getExperiments();
-        const entryStats = experimentEntryCounts(evs);
-        const counts = entryStats.counts;
-
-        const expTable = el('table', { class: 'exp-table' });
-        const expHead = el('thead');
-        const expHeadRow = el('tr');
-        const expHeaders = [
-            'Experiment ID',
-            'Name',
-            'Status',
-            'Start (local)',
-            'End (local)',
-            'Finished',
-            'Entries',
-            'Action'
-        ];
-        expHeaders.forEach(h => expHeadRow.appendChild(el('th', {}, [h])));
-        expHead.appendChild(expHeadRow);
-        expTable.appendChild(expHead);
-
-        const expBody = el('tbody');
-
-        exps.forEach(e => {
-            const stats = counts[e.experiment_id] || { finished: 0, total: 0 };
-
-            const tr = el('tr');
-            tr.appendChild(el('td', {}, [e.experiment_id]));
-            tr.appendChild(el('td', {}, [e.name]));
-            tr.appendChild(el('td', {}, [e.status ? e.status.toUpperCase() : '']));
-            tr.appendChild(el('td', {}, [new Date(e.start_ts).toLocaleString()]));
-            tr.appendChild(el('td', {}, [e.end_ts ? new Date(e.end_ts).toLocaleString() : '']));
-            tr.appendChild(el('td', {}, [String(stats.finished)]));
-            tr.appendChild(el('td', {}, [String(stats.total)]));
-
-            const actionTd = el('td');
-            if (e.status === 'ended') {
-                actionTd.appendChild(el('span', {}, ['—']));
-            } else {
-                const endBtn = el('button', { class: 'btn' }, ['End']);
-                endBtn.onclick = () => endExperiment(e.experiment_id);
-                actionTd.appendChild(endBtn);
-            }
-            tr.appendChild(actionTd);
-
-            expBody.appendChild(tr);
-        });
-
-        // Strays row – label in End column, counts in Finished & Entries
-        const strayTr = el('tr');
-        strayTr.appendChild(el('td', {}, [''])); // Experiment ID
-        strayTr.appendChild(el('td', {}, [''])); // Name
-        strayTr.appendChild(el('td', {}, [''])); // Status
-        strayTr.appendChild(el('td', {}, [''])); // Start
-        strayTr.appendChild(
-            el('td', { class: 'exp-summary-label' }, ['Strays:'])
-        ); // End (label)
-        strayTr.appendChild(
-            el('td', {}, [String(entryStats.strayFinished)])
-        ); // Finished
-        strayTr.appendChild(
-            el('td', {}, [String(entryStats.strayTotal)])
-        ); // Entries
-        strayTr.appendChild(el('td', {}, [''])); // Action
-        expBody.appendChild(strayTr);
-
-        // Total row – label in End column, counts in Finished & Entries
-        const totalTr = el('tr');
-        totalTr.appendChild(el('td', {}, ['']));
-        totalTr.appendChild(el('td', {}, ['']));
-        totalTr.appendChild(el('td', {}, ['']));
-        totalTr.appendChild(el('td', {}, ['']));
-        totalTr.appendChild(
-            el('td', { class: 'exp-summary-label' }, ['Total:'])
-        ); // End (label)
-        totalTr.appendChild(
-            el('td', {}, [String(entryStats.totalFinished)])
-        ); // Finished total
-        totalTr.appendChild(
-            el('td', {}, [String(entryStats.totalTotal)])
-        ); // Entries total
-        totalTr.appendChild(el('td', {}, ['']));
-        expBody.appendChild(totalTr);
-
-        expTable.appendChild(expBody);
-        manage.appendChild(expTable);
-        app.appendChild(manage);
-
-        // ===== Tabs (By Experiment / Pending / All) =====
-
-        const tabs = el('section');
-        const tabbar = el('div', { class: 'tabbar' });
-        const t1 = el('button', { class: 'tab ' + (state.tab === 'exp' ? 'active' : '') }, ['By Experiment']);
-        const t2 = el('button', { class: 'tab ' + (state.tab === 'pending' ? 'active' : '') }, ['Pending']);
-        const t3 = el('button', { class: 'tab ' + (state.tab === 'all' ? 'active' : '') }, ['All']);
-
-        tabbar.appendChild(t1);
-        tabbar.appendChild(t2);
-        tabbar.appendChild(t3);
-        tabs.appendChild(tabbar);
-
-        const content = el('div', { id: 'tabcontent' });
-        tabs.appendChild(content);
-        app.appendChild(tabs);
-
-        function draw(which) {
-            state.tab = which;
-            localStorage.setItem('dev_tab', which);
-            t1.classList.toggle('active', which === 'exp');
-            t2.classList.toggle('active', which === 'pending');
-            t3.classList.toggle('active', which === 'all');
-            content.innerHTML = '';
-
-            let filterFn = null;
-
-            if (which === 'pending') {
-                filterFn = s => isPendingSession(s.started_ts || 0);
-            }
-
-            if (which === 'exp') {
                 const exps = getExperiments();
-                const bar = el('div', { class: 'row' });
-                const sel = el('select', {});
-                exps.forEach(e => {
-                    const opt = el('option', { value: e.experiment_id }, [e.name]);
-                    sel.appendChild(opt);
-                });
-                if (!state.expId && exps.length) state.expId = exps[0].experiment_id;
-                if (state.expId) sel.value = state.expId;
-
-                bar.appendChild(el('label', {}, ['Experiment: ']));
-                bar.appendChild(sel);
-                content.appendChild(bar);
-
-                const getFilter = () => (sess => {
-                    const exp = exps.find(e => e.experiment_id === sel.value);
-                    if (!exp) return false;
-                    return (
-                        (sess.started_ts || 0) >= exp.start_ts &&
-                        (exp.end_ts === null || (sess.started_ts || 0) <= exp.end_ts)
-                    );
-                });
-
-                filterFn = getFilter();
-                sel.onchange = () => {
-                    state.expId = sel.value;
-                    localStorage.setItem('dev_expId', state.expId);
-                    draw('exp');
+                const e = {
+                    experiment_id: 'E' + Math.floor(Math.random() * 1e6) + '-' + Date.now(),
+                    name: name || ('Exp ' + (exps.length + 1)),
+                    start_ts: Date.now(),
+                    end_ts: null,
+                    status: 'active'
                 };
+                exps.push(e);
+                setExperiments(exps);
+                state.newExpName = '';
+                render();
             }
 
-            // ----- Sessions -----
-            const sessSec = el('section');
-            const sessHeaderRow = el('div', { class: 'row' });
-            sessHeaderRow.appendChild(el('h2', {}, ['Sessions']));
+            function endExperiment(id) {
+                setExperiments(
+                    getExperiments().map(e =>
+                        e.experiment_id === id
+                            ? { ...e, end_ts: Date.now(), status: 'ended' }
+                            : e
+                    )
+                );
+                render();
+            }
 
-            const sessAll = sessionsFromEvents(evs).filter(filterFn || (() => true));
-            const sessRows = sessAll.map(s => {
-                const expList = s.started_ts
-                    ? experimentsForSession(s.started_ts).map(e => e.name)
-                    : [];
+            /* ------------- fetch events (from backend) ------------- */
 
-                let expLabel = '';
-                if (!expList.length) {
-                    expLabel = '(Stray)';
-                } else {
-                    expLabel = expList.join(', ');
+            async function fetchEventsFromDB() {
+                // Only use backend API; it reads Supabase with service key
+                try {
+                    const r = await fetch(VERCEL_EVENTS_URL, { cache: 'no-store' });
+                    if (!r.ok) {
+                        console.warn('Events fetch failed', r.status);
+                        return [];
+                    }
+                    const rows = await r.json();
+                    // rows might be [{payload: {...}}, ...] or flat events
+                    return Array.isArray(rows) ? rows.map(x => x.payload ?? x) : [];
+                } catch (e) {
+                    console.error('Events fetch error', e);
+                    return [];
+                }
+            }
+
+            async function getEvents() {
+                const fromDb = await fetchEventsFromDB();
+                if (fromDb && fromDb.length) return fromDb;
+                return load('exp_events', []);
+            }
+
+            /* ------------- experiment mapping helpers ------------- */
+
+            function experimentsForSession(ts) {
+                return getExperiments().filter(
+                    e => e.start_ts <= ts && (e.end_ts === null || ts <= e.end_ts)
+                );
+            }
+
+            function isPendingSession(ts) {
+                const exps = getExperiments();
+                return !exps.some(
+                    e => e.start_ts <= ts && (e.end_ts === null || ts <= e.end_ts)
+                );
+            }
+
+            /* ------------- sessions reconstruction ------------- */
+
+            function sessionsFromEvents(evs) {
+                const by = {};
+
+                for (const ev of evs) {
+                    const sid = ev.session_id;
+                    if (!sid) continue;
+
+                    if (!by[sid]) {
+                        by[sid] = {
+                            session_id: sid,
+                            started_ts: null,
+                            finished: false,
+                            upload_consent: null,
+                            routes: new Set(),
+                            channel: null,
+                            prolific_id: null
+                        };
+                    }
+
+                    const s = by[sid];
+
+                    if (ev.name === 'session_meta') {
+                        s.channel = ev.channel || s.channel;
+                        s.prolific_id = ev.prolific_id || s.prolific_id;
+                    }
+
+                    if (ev.name === 'consent_accept') {
+                        s.upload_consent = true;
+                        if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
+                    }
+                    if (ev.name === 'consent_decline') {
+                        s.upload_consent = false;
+                        if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
+                    }
+
+                    if (ev.name === 'case_start') {
+                        if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
+                        if (ev.route_code) s.routes.add(ev.route_code);
+                    }
+
+                    if (ev.name === 'transcript_commit') {
+                        if (s.started_ts === null || ev.ts < s.started_ts) s.started_ts = ev.ts;
+                        if (ev.route_code) s.routes.add(ev.route_code);
+                        if (s.upload_consent === null) {
+                            s.upload_consent = true;
+                        }
+                    }
+
+                    if (ev.name === 'session_finish') {
+                        s.finished = true;
+                    }
                 }
 
-                // completeness check
-                const covered      = caseCoverageForSession(evs, s.session_id);
-                const isComplete   = EXPECTED_CASES.every(k => covered.includes(k));
-                const completeLabel = isComplete ? 'OK' : 'INCOMPLETE';
+                return Object.values(by)
+                    .map(s => ({
+                        ...s,
+                        routes: Array.from(s.routes).sort()
+                    }))
+                    .sort((a, b) => (a.started_ts || 0) - (b.started_ts || 0));
+            }
+
+            /* ---------------- transcript helpers ---------------- */
+
+            function rawRows(evs, filterFn) {
+                const rows = evs
+                    .filter(e => e.name === 'transcript_commit')
+                    .map(e => ({
+                        ts: e.ts,
+                        session_id: e.session_id,
+                        case_index: e.case_index,
+                        within_case_index: e.within_case_index,
+                        route_code: e.route_code,
+                        transcript_type: e.transcript_type,
+                        letters: (e.letters_shown_order || []).join(' '),
+                        slider_value: e.slider_value,
+                        transcript_time_ms: e.transcript_time_ms
+                    }))
+                    .sort((a, b) => a.ts - b.ts);
+
+                if (!filterFn) return rows;
+
+                const sess = sessionsFromEvents(evs)
+                    .filter(filterFn)
+                    .map(s => s.session_id);
+                const set = new Set(sess);
+                return rows.filter(r => set.has(r.session_id));
+            }
+
+            function flatRows(evs, filterFn) {
+                const sessions = sessionsFromEvents(evs);
+                const bySid = {};
+                sessions.forEach(s => { bySid[s.session_id] = s; });
+
+                const base = rawRows(evs, filterFn);
+                return base.map(r => {
+                    const s = bySid[r.session_id] || {};
+                    const startedTs = s.started_ts || null;
+                    const startedLocal = startedTs ? new Date(startedTs).toLocaleString() : '';
+
+                    return {
+                        ts: r.ts,
+                        ts_local: r.ts ? new Date(r.ts).toLocaleString() : '',
+                        session_id: r.session_id,
+                        case_index: r.case_index,
+                        within_case_index: r.within_case_index,
+                        route_code: r.route_code,
+                        transcript_type: r.transcript_type,
+                        letters: r.letters,
+                        slider_value: r.slider_value,
+                        transcript_time_ms: r.transcript_time_ms,
+                        started_ts: startedTs,
+                        started_local: startedLocal,
+                        upload_consent: s.upload_consent === null
+                            ? ''
+                            : (s.upload_consent ? 'true' : 'false'),
+                        finished: s.finished ? 'true' : 'false',
+                        channel: s.channel || '',
+                        prolific_id: s.prolific_id || '',
+                        experiments: startedTs
+                            ? experimentsForSession(startedTs).map(e => e.name).join(', ')
+                            : '',
+                        session_routes: (s.routes || []).join(', ')
+                    };
+                });
+            }
+
+            function summaryPivot(evs, filterFn, includeTimes) {
+                const rows = rawRows(evs, filterFn);
+                const types = ['A', 'B'];
+                const codes = [];
+                for (const i of types) {
+                    for (const j of types) {
+                        for (const k of types) {
+                            codes.push(i + j + k);
+                        }
+                    }
+                }
+                const cols = [];
+                const timeCols = [];
+                for (const c of codes) {
+                    cols.push(c + '_1', c + '_2', c + '_3');
+                    if (includeTimes) timeCols.push(c + '_1_t', c + '_2_t', c + '_3_t');
+                }
+                const by = {};
+                for (const r of rows) {
+                    const k = r.session_id;
+                    if (!by[k]) by[k] = { session_id: k };
+                    const col = r.route_code + '_' + r.within_case_index;
+                    by[k][col] = r.slider_value;
+                    if (includeTimes) by[k][col + '_t'] = r.transcript_time_ms;
+                }
+                return { columns: ['session_id', ...cols, ...timeCols], data: Object.values(by) };
+            }
+
+            /* ------------- completeness helper ------------- */
+
+            function caseCoverageForSession(evs, sessionId) {
+                const cases = new Set();
+                evs.forEach(ev => {
+                    if (ev.name === 'transcript_commit' && ev.session_id === sessionId) {
+                        cases.add(ev.case_index);
+                    }
+                });
+                return Array.from(cases).sort((a, b) => a - b);
+            }
+
+            /* ------------- DOM / table / download helpers ------------- */
+
+            function el(t, attrs, children) {
+                const n = document.createElement(t);
+                attrs = attrs || {};
+                for (const k in attrs) {
+                    if (k === 'class') n.className = attrs[k];
+                    else if (k === 'html') n.innerHTML = attrs[k];
+                    else n.setAttribute(k, attrs[k]);
+                }
+                (children || []).forEach(x =>
+                    n.appendChild(typeof x === 'string' ? document.createTextNode(x) : x)
+                );
+                return n;
+            }
+
+            function table(headers, rows) {
+                const t = el('table');
+                const thead = el('thead');
+                const trh = el('tr');
+                headers.forEach(h => trh.appendChild(el('th', {}, [h])));
+                thead.appendChild(trh);
+                t.appendChild(thead);
+
+                const tb = el('tbody');
+                rows.forEach(r => {
+                    const tr = el('tr');
+                    headers.forEach(h => {
+                        const td = el('td');
+                        const v = r[h];
+                        td.textContent = (v !== undefined && v !== null) ? String(v) : '';
+                        tr.appendChild(td);
+                    });
+                    tb.appendChild(tr);
+                });
+                t.appendChild(tb);
+                return t;
+            }
+
+            function downloadJSON(filename, obj) {
+                const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+            }
+
+            function rowsToCSV(headers, rows) {
+                const escapeValue = (v) => {
+                    if (v === null || v === undefined) return '';
+                    const s = String(v);
+                    if (/[",\n]/.test(s)) {
+                        return '"' + s.replace(/"/g, '""') + '"';
+                    }
+                    return s;
+                };
+
+                const lines = [];
+                lines.push(headers.join(','));
+                for (const row of rows) {
+                    const line = headers.map(h => escapeValue(row[h])).join(',');
+                    lines.push(line);
+                }
+                return lines.join('\r\n');
+            }
+
+            function downloadCSV(filename, headers, rows) {
+                const csv = rowsToCSV(headers, rows);
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+            }
+
+            /* ------------- experiment entry counts ------------- */
+
+            function experimentEntryCounts(evs) {
+                const exps = getExperiments();
+                const sessions = sessionsFromEvents(evs);
+
+                const counts = {}; // expId -> { finished, total }
+                exps.forEach(e => {
+                    counts[e.experiment_id] = { finished: 0, total: 0 };
+                });
+
+                let strayFinished = 0;
+                let strayTotal = 0;
+                let totalFinished = 0;
+                const totalTotal = sessions.length;
+
+                sessions.forEach(s => {
+                    const ts = s.started_ts || null;
+                    const finished = !!s.finished;
+                    if (finished) totalFinished++;
+
+                    const owned = ts ? experimentsForSession(ts) : [];
+
+                    if (!owned.length) {
+                        strayTotal++;
+                        if (finished) strayFinished++;
+                    } else {
+                        owned.forEach(e => {
+                            if (!counts[e.experiment_id]) {
+                                counts[e.experiment_id] = { finished: 0, total: 0 };
+                            }
+                            counts[e.experiment_id].total++;
+                            if (finished) counts[e.experiment_id].finished++;
+                        });
+                    }
+                });
 
                 return {
-                    session_id: s.session_id,
-                    started: s.started_ts ? new Date(s.started_ts).toLocaleString() : '',
-                    upload_consent: s.upload_consent === null
-                        ? ''
-                        : (s.upload_consent ? 'true' : 'false'),
-                    finished: s.finished ? 'true' : 'false',
-                    channel: s.channel || '',
-                    prolific_id: s.prolific_id || '',
-                    experiments: expLabel,
-                    routes: s.routes.join(', '),
-                    complete: completeLabel
+                    counts,
+                    strayFinished,
+                    strayTotal,
+                    totalFinished,
+                    totalTotal
                 };
-            });
-
-            const sessHeaders = [
-                'session_id',
-                'started',
-                'upload_consent',
-                'finished',
-                'channel',
-                'prolific_id',
-                'experiments',
-                'routes',
-                'complete'
-            ];
-
-            const sessDownloadBtn = el('button', { class: 'btn' }, ['Download CSV']);
-            sessDownloadBtn.onclick = () => downloadCSV('sessions.csv', sessHeaders, sessRows);
-
-            sessHeaderRow.appendChild(sessDownloadBtn);
-            sessSec.appendChild(sessHeaderRow);
-            sessSec.appendChild(table(sessHeaders, sessRows));
-            content.appendChild(sessSec);
-
-            // ----- Raw Data -----
-            const rawSec = el('section');
-            const rawHeaderRow = el('div', { class: 'row' });
-            rawHeaderRow.appendChild(el('h2', {}, ['Raw Data']));
-
-            const rawDisplayHeaders = [
-                'ts',
-                'session_id',
-                'case_index',
-                'within_case_index',
-                'route_code',
-                'transcript_type',
-                'letters',
-                'slider_value',
-                'transcript_time_ms'
-            ];
-
-            const flat = flatRows(evs, filterFn);
-            const flatHeaders = flat.length ? Object.keys(flat[0]) : rawDisplayHeaders;
-
-            const rawDownloadBtn = el('button', { class: 'btn' }, ['Download CSV']);
-            rawDownloadBtn.onclick = () => {
-                const flatForExport = flatRows(evs, filterFn);
-                downloadCSV('raw_long.csv', flatHeaders, flatForExport);
-            };
-
-            rawHeaderRow.appendChild(rawDownloadBtn);
-            rawSec.appendChild(rawHeaderRow);
-
-            const rawRowsData = rawRows(evs, filterFn);
-            rawSec.appendChild(table(rawDisplayHeaders, rawRowsData));
-            content.appendChild(rawSec);
-
-            // ----- Summary (reordered) -----
-            const sumSec = el('section');
-            const head = el('div', { class: 'row' });
-            head.appendChild(el('h2', {}, ['Summary (reordered)']));
-
-            const label = el('label', { class: 'row' }, [
-                el('input', { type: 'checkbox', id: 'showtimes' }),
-                ' Show timing columns'
-            ]);
-            head.appendChild(label);
-            sumSec.appendChild(head);
-
-            const box = el('div', { id: 'sumBox' });
-            sumSec.appendChild(box);
-
-            function drawSummary() {
-                const includeTimes = document.getElementById('showtimes').checked;
-                const sum = summaryPivot(evs, filterFn, includeTimes);
-                box.innerHTML = '';
-                box.appendChild(table(sum.columns, sum.data));
             }
 
-            sumSec.addEventListener('change', e => {
-                if (e.target && e.target.id === 'showtimes') drawSummary();
-            });
-            drawSummary();
-            content.appendChild(sumSec);
-        }
+            /* ----------------- main render ----------------- */
 
-        t1.onclick = () => draw('exp');
-        t2.onclick = () => draw('pending');
-        t3.onclick = () => draw('all');
-        draw(state.tab || 'all');
-    }
+            async function render() {
+                const evs = await getEvents();
+                app.innerHTML = '';
 
-    // auto-refresh: skip while typing in experiment name box
-    setInterval(() => {
-        const active = document.activeElement;
-        if (active && active.id === 'exp-name-input') return;
-        render();
-    }, 3000);
+                // Header row
+                const headerRow = el('div', { class: 'row' });
+                const title = el('h1', {}, ['Developer Portal']);
 
-    if (bc) {
-        bc.onmessage = () => {
-            const active = document.activeElement;
-            if (active && active.id === 'exp-name-input') return;
+                const refreshBtn = el('button', { class: 'btn', id: 'refresh-btn' }, ['Refresh']);
+                refreshBtn.onclick = () => {
+                    document.body.classList.add('refreshing');
+                    render().finally(() => {
+                        setTimeout(() => document.body.classList.remove('refreshing'), 150);
+                    });
+                };
+
+                headerRow.appendChild(title);
+                headerRow.appendChild(refreshBtn);
+                app.appendChild(headerRow);
+
+                const updateBar = el('div', { class: 'row', id: 'update-bar' });
+                const updatedLabel = el(
+                    'span',
+                    { id: 'last-updated' },
+                    ['Last updated: ' + new Date().toLocaleString()]
+                );
+                updateBar.appendChild(updatedLabel);
+                app.appendChild(updateBar);
+
+                /* ---------- Manage experiments ---------- */
+
+                const manage = el('section');
+
+                const controlRow = el('div', { class: 'row' });
+                const inp = el('input', {
+                    id: 'exp-name-input',
+                    placeholder: 'Experiment name (optional)'
+                });
+                inp.value = state.newExpName || '';
+                inp.oninput = () => {
+                    state.newExpName = inp.value;
+                };
+
+                const startBtn = el('button', { class: 'btn primary' }, ['Start Experiment']);
+                startBtn.onclick = () => startExperiment(inp.value.trim());
+
+                const exportBtn = el('button', { class: 'btn' }, ['Download raw events (JSON)']);
+                exportBtn.onclick = () => downloadJSON('events.json', evs);
+
+                controlRow.appendChild(inp);
+                controlRow.appendChild(startBtn);
+                controlRow.appendChild(exportBtn);
+                manage.appendChild(controlRow);
+
+                // Experiments table
+                const exps = getExperiments();
+                const entryStats = experimentEntryCounts(evs);
+                const counts = entryStats.counts;
+
+                const expTable = el('table', { class: 'exp-table' });
+                const expHead = el('thead');
+                const expHeadRow = el('tr');
+                const expHeaders = [
+                    'Experiment ID',
+                    'Name',
+                    'Status',
+                    'Start (local)',
+                    'End (local)',
+                    'Finished',
+                    'Entries',
+                    'Action'
+                ];
+                expHeaders.forEach(h => expHeadRow.appendChild(el('th', {}, [h])));
+                expHead.appendChild(expHeadRow);
+                expTable.appendChild(expHead);
+
+                const expBody = el('tbody');
+
+                exps.forEach(e => {
+                    const stats = counts[e.experiment_id] || { finished: 0, total: 0 };
+
+                    const tr = el('tr');
+                    tr.appendChild(el('td', {}, [e.experiment_id]));
+                    tr.appendChild(el('td', {}, [e.name]));
+                    tr.appendChild(el('td', {}, [e.status ? e.status.toUpperCase() : '']));
+                    tr.appendChild(el('td', {}, [new Date(e.start_ts).toLocaleString()]));
+                    tr.appendChild(el('td', {}, [e.end_ts ? new Date(e.end_ts).toLocaleString() : '']));
+                    tr.appendChild(el('td', {}, [String(stats.finished)]));
+                    tr.appendChild(el('td', {}, [String(stats.total)]));
+
+                    const actionTd = el('td');
+                    if (e.status === 'ended') {
+                        actionTd.appendChild(el('span', {}, ['—']));
+                    } else {
+                        const endBtn = el('button', { class: 'btn' }, ['End']);
+                        endBtn.onclick = () => endExperiment(e.experiment_id);
+                        actionTd.appendChild(endBtn);
+                    }
+                    tr.appendChild(actionTd);
+
+                    expBody.appendChild(tr);
+                });
+
+                // Strays row – label in End column, counts in Finished & Entries
+                const strayTr = el('tr');
+                strayTr.appendChild(el('td', {}, ['']));
+                strayTr.appendChild(el('td', {}, ['']));
+                strayTr.appendChild(el('td', {}, ['']));
+                strayTr.appendChild(el('td', {}, ['']));
+                strayTr.appendChild(
+                    el('td', { class: 'exp-summary-label' }, ['Strays:'])
+                );
+                strayTr.appendChild(
+                    el('td', {}, [String(entryStats.strayFinished)])
+                );
+                strayTr.appendChild(
+                    el('td', {}, [String(entryStats.strayTotal)])
+                );
+                strayTr.appendChild(el('td', {}, ['']));
+                expBody.appendChild(strayTr);
+
+                // Total row – label in End column, counts in Finished & Entries
+                const totalTr = el('tr');
+                totalTr.appendChild(el('td', {}, ['']));
+                totalTr.appendChild(el('td', {}, ['']));
+                totalTr.appendChild(el('td', {}, ['']));
+                totalTr.appendChild(el('td', {}, ['']));
+                totalTr.appendChild(
+                    el('td', { class: 'exp-summary-label' }, ['Total:'])
+                );
+                totalTr.appendChild(
+                    el('td', {}, [String(entryStats.totalFinished)])
+                );
+                totalTr.appendChild(
+                    el('td', {}, [String(entryStats.totalTotal)])
+                );
+                totalTr.appendChild(el('td', {}, ['']));
+                expBody.appendChild(totalTr);
+
+                expTable.appendChild(expBody);
+                manage.appendChild(expTable);
+                app.appendChild(manage);
+
+                /* ---------------- Tabs ---------------- */
+
+                const tabs = el('section');
+                const tabbar = el('div', { class: 'tabbar' });
+                const t1 = el('button', { class: 'tab ' + (state.tab === 'exp' ? 'active' : '') }, ['By Experiment']);
+                const t2 = el('button', { class: 'tab ' + (state.tab === 'pending' ? 'active' : '') }, ['Pending']);
+                const t3 = el('button', { class: 'tab ' + (state.tab === 'all' ? 'active' : '') }, ['All']);
+
+                tabbar.appendChild(t1);
+                tabbar.appendChild(t2);
+                tabbar.appendChild(t3);
+                tabs.appendChild(tabbar);
+
+                const content = el('div', { id: 'tabcontent' });
+                tabs.appendChild(content);
+                app.appendChild(tabs);
+
+                function draw(which) {
+                    state.tab = which;
+                    localStorage.setItem('dev_tab', which);
+                    t1.classList.toggle('active', which === 'exp');
+                    t2.classList.toggle('active', which === 'pending');
+                    t3.classList.toggle('active', which === 'all');
+                    content.innerHTML = '';
+
+                    let filterFn = null;
+
+                    if (which === 'pending') {
+                        filterFn = s => isPendingSession(s.started_ts || 0);
+                    }
+
+                    if (which === 'exp') {
+                        const exps = getExperiments();
+                        const bar = el('div', { class: 'row' });
+                        const sel = el('select', {});
+                        exps.forEach(e => {
+                            const opt = el('option', { value: e.experiment_id }, [e.name]);
+                            sel.appendChild(opt);
+                        });
+                        if (!state.expId && exps.length) state.expId = exps[0].experiment_id;
+                        if (state.expId) sel.value = state.expId;
+
+                        bar.appendChild(el('label', {}, ['Experiment: ']));
+                        bar.appendChild(sel);
+                        content.appendChild(bar);
+
+                        const getFilter = () => (sess => {
+                            const exp = exps.find(e => e.experiment_id === sel.value);
+                            if (!exp) return false;
+                            return (
+                                (sess.started_ts || 0) >= exp.start_ts &&
+                                (exp.end_ts === null || (sess.started_ts || 0) <= exp.end_ts)
+                            );
+                        });
+
+                        filterFn = getFilter();
+                        sel.onchange = () => {
+                            state.expId = sel.value;
+                            localStorage.setItem('dev_expId', state.expId);
+                            draw('exp');
+                        };
+                    }
+
+                    /* ---------- Sessions (with pagination) ---------- */
+
+                    const sessSec = el('section');
+                    const sessHeaderRow = el('div', { class: 'row' });
+                    sessHeaderRow.appendChild(el('h2', {}, ['Sessions']));
+
+                    const sessAll = sessionsFromEvents(evs)
+                        .filter(filterFn || (() => true))
+                        .sort((a, b) => (b.started_ts || 0) - (a.started_ts || 0));   // newest first
+
+                    const sessRows = sessAll.map(s => {
+                        const expList = s.started_ts
+                            ? experimentsForSession(s.started_ts).map(e => e.name)
+                            : [];
+
+                        let expLabel = '';
+                        if (!expList.length) {
+                            expLabel = '(Stray)';
+                        } else {
+                            expLabel = expList.join(', ');
+                        }
+
+                        const covered = caseCoverageForSession(evs, s.session_id);
+                        const isComplete = EXPECTED_CASES.every(k => covered.includes(k));
+                        const completeLabel = isComplete ? 'OK' : 'INCOMPLETE';
+
+                        return {
+                            session_id: s.session_id,
+                            started: s.started_ts ? new Date(s.started_ts).toLocaleString() : '',
+                            upload_consent: s.upload_consent === null
+                                ? ''
+                                : (s.upload_consent ? 'true' : 'false'),
+                            finished: s.finished ? 'true' : 'false',
+                            channel: s.channel || '',
+                            prolific_id: s.prolific_id || '',
+                            experiments: expLabel,
+                            routes: s.routes.join(', '),
+                            complete: completeLabel
+                        };
+                    });
+
+                    const sessHeaders = [
+                        'session_id',
+                        'started',
+                        'upload_consent',
+                        'finished',
+                        'channel',
+                        'prolific_id',
+                        'experiments',
+                        'routes',
+                        'complete'
+                    ];
+
+                    const sessDownloadBtn = el('button', { class: 'btn' }, ['Download CSV (all)']);
+                    sessDownloadBtn.onclick = () => downloadCSV('sessions.csv', sessHeaders, sessRows);
+
+                    sessHeaderRow.appendChild(sessDownloadBtn);
+                    sessSec.appendChild(sessHeaderRow);
+
+                    const PAGE_SIZE = 30;
+                    let currentPage = 0;
+                    const sessTableContainer = el('div', {});
+
+                    function renderSessionsPage() {
+                        sessTableContainer.innerHTML = '';
+
+                        const total = sessRows.length;
+                        const maxPage = total ? Math.floor((total - 1) / PAGE_SIZE) : 0;
+                        if (currentPage > maxPage) currentPage = maxPage;
+
+                        const start = currentPage * PAGE_SIZE;
+                        const end = start + PAGE_SIZE;
+                        const pageRows = sessRows.slice(start, end);
+
+                        sessTableContainer.appendChild(table(sessHeaders, pageRows));
+
+                        const pager = el('div', { class: 'row' });
+                        const prevBtn = el('button', { class: 'btn' }, ['Prev']);
+                        const nextBtn = el('button', { class: 'btn' }, ['Next']);
+                        const label = el('span', {}, [
+                            ` Page ${total ? currentPage + 1 : 0} / ${total ? (maxPage + 1) : 0} `
+                        ]);
+
+                        prevBtn.disabled = currentPage === 0;
+                        nextBtn.disabled = currentPage >= maxPage;
+
+                        prevBtn.onclick = () => {
+                            if (currentPage > 0) {
+                                currentPage--;
+                                renderSessionsPage();
+                            }
+                        };
+                        nextBtn.onclick = () => {
+                            if (currentPage < maxPage) {
+                                currentPage++;
+                                renderSessionsPage();
+                            }
+                        };
+
+                        pager.appendChild(prevBtn);
+                        pager.appendChild(label);
+                        pager.appendChild(nextBtn);
+                        sessTableContainer.appendChild(pager);
+                    }
+
+                    renderSessionsPage();
+                    sessSec.appendChild(sessTableContainer);
+                    content.appendChild(sessSec);
+
+                    /* ---------- Raw Data (last 30, descending) ---------- */
+
+                    const rawSec = el('section');
+                    const rawHeaderRow = el('div', { class: 'row' });
+                    rawHeaderRow.appendChild(el('h2', {}, ['Raw Data']));
+
+                    const rawDisplayHeaders = [
+                        'ts',
+                        'session_id',
+                        'case_index',
+                        'within_case_index',
+                        'route_code',
+                        'transcript_type',
+                        'letters',
+                        'slider_value',
+                        'transcript_time_ms'
+                    ];
+
+                    const flatAll = flatRows(evs, filterFn);
+                    const flatHeaders = flatAll.length ? Object.keys(flatAll[0]) : rawDisplayHeaders;
+
+                    const rawDownloadBtn = el('button', { class: 'btn' }, ['Download CSV (all)']);
+                    rawDownloadBtn.onclick = () => {
+                        downloadCSV('raw_long.csv', flatHeaders, flatAll);
+                    };
+
+                    rawHeaderRow.appendChild(rawDownloadBtn);
+                    rawSec.appendChild(rawHeaderRow);
+
+                    const rawAll = rawRows(evs, filterFn);   // ascending by ts
+                    let rawDisplay = rawAll;
+
+                    if (rawDisplay.length > 30) {
+                        rawDisplay = rawDisplay.slice(-30);
+                    }
+                    rawDisplay = rawDisplay.slice().sort((a, b) => b.ts - a.ts);  // newest first
+
+                    rawSec.appendChild(table(rawDisplayHeaders, rawDisplay));
+                    content.appendChild(rawSec);
+
+                    /* ---------- Summary ---------- */
+
+                    const sumSec = el('section');
+                    const head = el('div', { class: 'row' });
+                    head.appendChild(el('h2', {}, ['Summary (reordered)']));
+
+                    const label = el('label', { class: 'row' }, [
+                        el('input', { type: 'checkbox', id: 'showtimes' }),
+                        ' Show timing columns'
+                    ]);
+                    head.appendChild(label);
+                    sumSec.appendChild(head);
+
+                    const box = el('div', { id: 'sumBox' });
+                    sumSec.appendChild(box);
+
+                    function drawSummary() {
+                        const includeTimes = document.getElementById('showtimes').checked;
+                        const sum = summaryPivot(evs, filterFn, includeTimes);
+                        box.innerHTML = '';
+                        box.appendChild(table(sum.columns, sum.data));
+                    }
+
+                    sumSec.addEventListener('change', e => {
+                        if (e.target && e.target.id === 'showtimes') drawSummary();
+                    });
+                    drawSummary();
+                    content.appendChild(sumSec);
+                }
+
+                t1.onclick = () => draw('exp');
+                t2.onclick = () => draw('pending');
+                t3.onclick = () => draw('all');
+                draw(state.tab || 'all');
+            }
+
+            // Auto-refresh: skip while typing in experiment name box
+            setInterval(() => {
+                const active = document.activeElement;
+                if (active && active.id === 'exp-name-input') return;
+                render();
+            }, 3000);
+
+            if (bc) {
+                bc.onmessage = () => {
+                    const active = document.activeElement;
+                    if (active && active.id === 'exp-name-input') return;
+                    render();
+                };
+            }
+
             render();
-        };
-    }
-
-    render();
-})();
+        })();
     </script>
 </body>
 </html>

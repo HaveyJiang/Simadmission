@@ -121,29 +121,7 @@ const EXPECTED_CASES = [1, 2, 3, 4, 5, 6, 7, 8];
     // ---------- fetching events ----------
 
     async function fetchEventsFromDB() {
-        // Primary source: Supabase "events" table (same place the User Portal writes to)
-        try {
-            if (SUPABASE_URL && SUPABASE_ANON && SUPABASE_URL.indexOf('YOUR-PROJECT') === -1) {
-                const url = `${SUPABASE_URL}/rest/v1/events?select=payload,ts&order=ts.asc`;
-                const resp = await fetch(url, {
-                    headers: {
-                        'apikey': SUPABASE_ANON,
-                        'Authorization': `Bearer ${SUPABASE_ANON}`
-                    },
-                    cache: 'no-store'
-                });
-                if (resp.ok) {
-                    const rows = await resp.json();
-                    // rows come from Supabase; each row has a JSON "payload" column
-                    return Array.isArray(rows) ? rows.map(x => x.payload ?? x) : [];
-                }
-                console.warn('Supabase events fetch failed', resp.status);
-            }
-        } catch (e) {
-            console.warn('Supabase events error', e);
-        }
-
-        // Fallback: legacy Vercel endpoint (in case you still have data there)
+        // Only use the backend API; it reads Supabase with service role key.
         try {
             const r = await fetch(VERCEL_EVENTS_URL, { cache: 'no-store' });
             if (!r.ok) {
@@ -151,12 +129,14 @@ const EXPECTED_CASES = [1, 2, 3, 4, 5, 6, 7, 8];
                 return [];
             }
             const rows = await r.json();
+            // Each row is either { payload: {...} } or already an event object
             return Array.isArray(rows) ? rows.map(x => x.payload ?? x) : [];
         } catch (e) {
             console.error('Events fetch error', e);
             return [];
         }
     }
+
 
 
     async function getEvents() {

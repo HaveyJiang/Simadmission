@@ -1,35 +1,27 @@
-// JavaScript source code
-// api/events.js ¡ª Vercel serverless function for secure reads from Supabase
+// api/events.js (or pages/api/events.js)
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY  // server-side only!
+);
+
 export default async function handler(req, res) {
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+    try {
+        const { data, error } = await supabase
+            .from('events')
+            .select('payload, ts')
+            .order('ts', { ascending: true });
 
-    if (!SUPABASE_URL || !SERVICE_KEY) {
-        res.status(500).json({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_KEY' });
-        return;
-    }
-
-    const url =
-        `${SUPABASE_URL}/rest/v1/events` +
-        `?select=payload,ts,session_id,name,channel,prolific_id,case_index,within_case_index,route_code,transcript_type,letters,slider_value,transcript_time_ms` +
-        `&order=ts.asc`;
-
-    const resp = await fetch(url, {
-        headers: {
-            apikey: SERVICE_KEY,
-            Authorization: `Bearer ${SERVICE_KEY}`,
-            'Content-Type': 'application/json'
+        if (error) {
+            console.error('Supabase select error:', error);
+            return res.status(500).json({ error: error.message });
         }
-    });
 
-    if (!resp.ok) {
-        const text = await resp.text();
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.status(resp.status).send(text);
-        return;
+        // Dev portal expects an array of rows with {payload, ts}
+        return res.status(200).json(data || []);
+    } catch (e) {
+        console.error('Unexpected /api/events error:', e);
+        return res.status(500).json({ error: 'Unexpected error' });
     }
-
-    const rows = await resp.json();
-    res.setHeader('Access-Control-Allow-Origin', '*'); // allow Dev Portal
-    res.status(200).json(rows);
 }
